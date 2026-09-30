@@ -1,0 +1,1385 @@
+{
+  "apiVersion": 1,
+  "protocol": 1,
+  "rngVersion": 1,
+  "presets": [
+    "easy",
+    "normal",
+    "hard",
+    "expert"
+  ],
+  "timeoutBounds": {
+    "min": 1000,
+    "max": 180000
+  },
+  "reasons": {
+    "success": [
+      "completed"
+    ],
+    "failed": [
+      "missed",
+      "mistakes_exhausted",
+      "overstressed",
+      "tool_broke",
+      "tests_exhausted",
+      "submissions_exhausted",
+      "boundary_contact",
+      "early_release",
+      "step_failed",
+      "abandoned"
+    ],
+    "timeout": [
+      "time_expired",
+      "hard_deadline",
+      "sequence_deadline"
+    ],
+    "cancelled": [
+      "player_cancelled",
+      "caller_cancelled",
+      "player_died",
+      "left_area",
+      "target_lost",
+      "context_check",
+      "logged_out",
+      "caller_stopped",
+      "resource_stopping",
+      "server_cancelled",
+      "attempt_expired",
+      "practice_idle"
+    ],
+    "error": [
+      "ui_startup_timeout",
+      "ui_error",
+      "bridge_failure",
+      "invalid_report",
+      "focus_failed",
+      "generation_failed"
+    ],
+    "rejected": [
+      "busy",
+      "invalid_options",
+      "invalid_params",
+      "unknown_game",
+      "unsupported_input",
+      "focus_unavailable",
+      "not_owner",
+      "invalid_sequence",
+      "dependency_missing"
+    ]
+  },
+  "qte": {
+    "types": [
+      "press",
+      "hold",
+      "release",
+      "alternate",
+      "chord",
+      "react",
+      "tap"
+    ],
+    "actions": [
+      "up",
+      "down",
+      "left",
+      "right",
+      "primary",
+      "alt",
+      "prev",
+      "next",
+      "rotate"
+    ],
+    "fields": {
+      "windowMs": {
+        "type": "int",
+        "min": 300,
+        "max": 6000
+      },
+      "durationMs": {
+        "type": "int",
+        "min": 300,
+        "max": 5000
+      },
+      "count": {
+        "type": "int",
+        "min": 2,
+        "max": 20
+      },
+      "toleranceMs": {
+        "type": "int",
+        "min": 40,
+        "max": 500
+      },
+      "minDelayMs": {
+        "type": "int",
+        "min": 300,
+        "max": 5000
+      },
+      "maxDelayMs": {
+        "type": "int",
+        "min": 300,
+        "max": 6000
+      },
+      "targetStart": {
+        "type": "number",
+        "min": 0.15,
+        "max": 0.85
+      },
+      "targetWidth": {
+        "type": "number",
+        "min": 0.06,
+        "max": 0.4
+      },
+      "earlyRelease": {
+        "type": "enum",
+        "values": [
+          "fail",
+          "restart"
+        ]
+      }
+    }
+  },
+  "games": [
+    {
+      "id": "timing",
+      "version": 1,
+      "name": "Timing Check",
+      "inputs": [
+        "keyboard",
+        "mouse",
+        "controller"
+      ],
+      "presentation": "compact",
+      "cursor": false,
+      "minDurationMs": 120,
+      "params": {
+        "variant": {
+          "type": "enum",
+          "values": [
+            "linear",
+            "circular"
+          ]
+        },
+        "rounds": {
+          "type": "int",
+          "min": 1,
+          "max": 5
+        },
+        "cyclesPerSec": {
+          "type": "number",
+          "min": 0.2,
+          "max": 3
+        },
+        "window": {
+          "type": "number",
+          "min": 0.04,
+          "max": 0.4
+        },
+        "perfect": {
+          "type": "number",
+          "min": 0,
+          "max": 0.6
+        },
+        "reversals": {
+          "type": "bool"
+        },
+        "mistakes": {
+          "type": "int",
+          "min": 0,
+          "max": 3
+        },
+        "roundGapMs": {
+          "type": "int",
+          "min": 200,
+          "max": 1500
+        }
+      },
+      "presets": {
+        "easy": {
+          "variant": "linear",
+          "rounds": 1,
+          "cyclesPerSec": 0.45,
+          "window": 0.22,
+          "perfect": 0.35,
+          "reversals": false,
+          "mistakes": 1,
+          "roundGapMs": 500
+        },
+        "normal": {
+          "variant": "linear",
+          "rounds": 1,
+          "cyclesPerSec": 0.65,
+          "window": 0.15,
+          "perfect": 0.3,
+          "reversals": false,
+          "mistakes": 0,
+          "roundGapMs": 450
+        },
+        "hard": {
+          "variant": "circular",
+          "rounds": 2,
+          "cyclesPerSec": 0.8,
+          "window": 0.11,
+          "perfect": 0.25,
+          "reversals": true,
+          "mistakes": 0,
+          "roundGapMs": 400
+        },
+        "expert": {
+          "variant": "circular",
+          "rounds": 3,
+          "cyclesPerSec": 1.05,
+          "window": 0.08,
+          "perfect": 0.2,
+          "reversals": true,
+          "mistakes": 0,
+          "roundGapMs": 350
+        }
+      },
+      "defaultTimeoutMs": {
+        "easy": 7444,
+        "normal": 6027,
+        "hard": 8300,
+        "expert": 9264
+      },
+      "metrics": {
+        "rounds": "number",
+        "hits": "number",
+        "perfects": "number",
+        "accuracy": "number",
+        "meanOffset": "number"
+      }
+    },
+    {
+      "id": "sequence",
+      "version": 1,
+      "name": "Sequence Recall",
+      "inputs": [
+        "keyboard",
+        "mouse",
+        "controller"
+      ],
+      "presentation": "compact",
+      "cursor": false,
+      "minDurationMs": 600,
+      "params": {
+        "length": {
+          "type": "int",
+          "min": 3,
+          "max": 10
+        },
+        "symbols": {
+          "type": "enum",
+          "values": [
+            "directions",
+            "extended"
+          ]
+        },
+        "previewMs": {
+          "type": "int",
+          "min": 250,
+          "max": 1500
+        },
+        "mistakes": {
+          "type": "int",
+          "min": 0,
+          "max": 3
+        },
+        "interference": {
+          "type": "bool"
+        }
+      },
+      "presets": {
+        "easy": {
+          "length": 4,
+          "symbols": "directions",
+          "previewMs": 900,
+          "mistakes": 2,
+          "interference": false
+        },
+        "normal": {
+          "length": 5,
+          "symbols": "directions",
+          "previewMs": 700,
+          "mistakes": 1,
+          "interference": false
+        },
+        "hard": {
+          "length": 6,
+          "symbols": "extended",
+          "previewMs": 560,
+          "mistakes": 1,
+          "interference": true
+        },
+        "expert": {
+          "length": 8,
+          "symbols": "extended",
+          "previewMs": 460,
+          "mistakes": 0,
+          "interference": true
+        }
+      },
+      "defaultTimeoutMs": {
+        "easy": 12650,
+        "normal": 14050,
+        "hard": 15410,
+        "expert": 18730
+      },
+      "metrics": {
+        "length": "number",
+        "correct": "number",
+        "previewPresses": "number",
+        "meanResponseMs": "number"
+      }
+    },
+    {
+      "id": "pressure",
+      "version": 1,
+      "name": "Pressure Control",
+      "inputs": [
+        "keyboard",
+        "mouse",
+        "controller"
+      ],
+      "presentation": "compact",
+      "cursor": false,
+      "minDurationMs": 1500,
+      "params": {
+        "rise": {
+          "type": "number",
+          "min": 0.6,
+          "max": 4
+        },
+        "decay": {
+          "type": "number",
+          "min": 0.2,
+          "max": 2
+        },
+        "damping": {
+          "type": "number",
+          "min": 1,
+          "max": 8
+        },
+        "bandWidth": {
+          "type": "number",
+          "min": 0.08,
+          "max": 0.4
+        },
+        "bandMotion": {
+          "type": "number",
+          "min": 0,
+          "max": 0.3
+        },
+        "bandPeriodMs": {
+          "type": "int",
+          "min": 2000,
+          "max": 12000
+        },
+        "workMs": {
+          "type": "int",
+          "min": 2000,
+          "max": 15000
+        },
+        "stressMs": {
+          "type": "int",
+          "min": 500,
+          "max": 5000
+        },
+        "graceMs": {
+          "type": "int",
+          "min": 0,
+          "max": 800
+        }
+      },
+      "presets": {
+        "easy": {
+          "rise": 1.7,
+          "decay": 0.8,
+          "damping": 3,
+          "bandWidth": 0.28,
+          "bandMotion": 0.05,
+          "bandPeriodMs": 7000,
+          "workMs": 4000,
+          "stressMs": 3000,
+          "graceMs": 500
+        },
+        "normal": {
+          "rise": 1.8,
+          "decay": 0.85,
+          "damping": 3,
+          "bandWidth": 0.22,
+          "bandMotion": 0.1,
+          "bandPeriodMs": 6000,
+          "workMs": 5500,
+          "stressMs": 2200,
+          "graceMs": 350
+        },
+        "hard": {
+          "rise": 2,
+          "decay": 0.9,
+          "damping": 2.6,
+          "bandWidth": 0.16,
+          "bandMotion": 0.16,
+          "bandPeriodMs": 5200,
+          "workMs": 7000,
+          "stressMs": 1600,
+          "graceMs": 250
+        },
+        "expert": {
+          "rise": 2.2,
+          "decay": 1,
+          "damping": 2.4,
+          "bandWidth": 0.12,
+          "bandMotion": 0.2,
+          "bandPeriodMs": 4600,
+          "workMs": 8000,
+          "stressMs": 1200,
+          "graceMs": 150
+        }
+      },
+      "defaultTimeoutMs": {
+        "easy": 11000,
+        "normal": 14000,
+        "hard": 17000,
+        "expert": 19000
+      },
+      "metrics": {
+        "inBandRatio": "number",
+        "maxStress": "number",
+        "excursions": "number",
+        "workDone": "number"
+      }
+    },
+    {
+      "id": "signal_lock",
+      "version": 1,
+      "name": "Signal Lock",
+      "inputs": [
+        "keyboard",
+        "mouse",
+        "controller"
+      ],
+      "presentation": "focused",
+      "cursor": false,
+      "minDurationMs": 800,
+      "params": {
+        "channels": {
+          "type": "int",
+          "min": 1,
+          "max": 3
+        },
+        "tolerance": {
+          "type": "number",
+          "min": 0.005,
+          "max": 0.05
+        },
+        "dwellMs": {
+          "type": "int",
+          "min": 300,
+          "max": 2500
+        },
+        "coarseSpeed": {
+          "type": "number",
+          "min": 0.12,
+          "max": 0.6
+        },
+        "fineSpeed": {
+          "type": "number",
+          "min": 0.01,
+          "max": 0.08
+        },
+        "drift": {
+          "type": "number",
+          "min": 0,
+          "max": 0.03
+        },
+        "secondAxis": {
+          "type": "bool"
+        },
+        "searchWidth": {
+          "type": "number",
+          "min": 0.06,
+          "max": 0.3
+        }
+      },
+      "presets": {
+        "easy": {
+          "channels": 1,
+          "tolerance": 0.022,
+          "dwellMs": 600,
+          "coarseSpeed": 0.3,
+          "fineSpeed": 0.045,
+          "drift": 0,
+          "secondAxis": false,
+          "searchWidth": 0.22
+        },
+        "normal": {
+          "channels": 2,
+          "tolerance": 0.016,
+          "dwellMs": 700,
+          "coarseSpeed": 0.3,
+          "fineSpeed": 0.04,
+          "drift": 0,
+          "secondAxis": false,
+          "searchWidth": 0.18
+        },
+        "hard": {
+          "channels": 2,
+          "tolerance": 0.012,
+          "dwellMs": 850,
+          "coarseSpeed": 0.32,
+          "fineSpeed": 0.035,
+          "drift": 0.01,
+          "secondAxis": false,
+          "searchWidth": 0.14
+        },
+        "expert": {
+          "channels": 3,
+          "tolerance": 0.01,
+          "dwellMs": 900,
+          "coarseSpeed": 0.34,
+          "fineSpeed": 0.03,
+          "drift": 0.01,
+          "secondAxis": true,
+          "searchWidth": 0.12
+        }
+      },
+      "defaultTimeoutMs": {
+        "easy": 9600,
+        "normal": 15400,
+        "hard": 15700,
+        "expert": 30700
+      },
+      "metrics": {
+        "channels": "number",
+        "channelsLocked": "number",
+        "alignmentError": "number",
+        "lockBreaks": "number",
+        "stability": "number"
+      }
+    },
+    {
+      "id": "circuit_route",
+      "version": 1,
+      "name": "Circuit Routing",
+      "inputs": [
+        "keyboard",
+        "mouse",
+        "controller"
+      ],
+      "presentation": "focused",
+      "cursor": false,
+      "minDurationMs": 1200,
+      "params": {
+        "cols": {
+          "type": "int",
+          "min": 4,
+          "max": 7
+        },
+        "rows": {
+          "type": "int",
+          "min": 3,
+          "max": 6
+        },
+        "terminals": {
+          "type": "int",
+          "min": 1,
+          "max": 3
+        },
+        "distractors": {
+          "type": "number",
+          "min": 0,
+          "max": 1
+        },
+        "hazards": {
+          "type": "int",
+          "min": 0,
+          "max": 3
+        },
+        "tests": {
+          "type": "int",
+          "min": 1,
+          "max": 5
+        }
+      },
+      "presets": {
+        "easy": {
+          "cols": 4,
+          "rows": 3,
+          "terminals": 1,
+          "distractors": 0.3,
+          "hazards": 0,
+          "tests": 4
+        },
+        "normal": {
+          "cols": 5,
+          "rows": 4,
+          "terminals": 2,
+          "distractors": 0.4,
+          "hazards": 1,
+          "tests": 3
+        },
+        "hard": {
+          "cols": 6,
+          "rows": 4,
+          "terminals": 2,
+          "distractors": 0.6,
+          "hazards": 2,
+          "tests": 2
+        },
+        "expert": {
+          "cols": 7,
+          "rows": 5,
+          "terminals": 3,
+          "distractors": 0.7,
+          "hazards": 3,
+          "tests": 2
+        }
+      },
+      "defaultTimeoutMs": {
+        "easy": 19800,
+        "normal": 27000,
+        "hard": 30600,
+        "expert": 40500
+      },
+      "metrics": {
+        "testsUsed": "number",
+        "rotations": "number",
+        "baselineRotations": "number",
+        "efficiency": "number",
+        "fallback": "boolean"
+      }
+    },
+    {
+      "id": "pin_tension",
+      "version": 1,
+      "name": "Pin & Tension",
+      "inputs": [
+        "keyboard",
+        "mouse",
+        "controller"
+      ],
+      "presentation": "focused",
+      "cursor": false,
+      "minDurationMs": 1500,
+      "params": {
+        "pins": {
+          "type": "int",
+          "min": 3,
+          "max": 6
+        },
+        "liftTolerance": {
+          "type": "number",
+          "min": 0.04,
+          "max": 0.25
+        },
+        "tensionWindow": {
+          "type": "number",
+          "min": 0.1,
+          "max": 0.4
+        },
+        "stressRate": {
+          "type": "number",
+          "min": 0.2,
+          "max": 2
+        },
+        "recovery": {
+          "type": "number",
+          "min": 0.05,
+          "max": 0.6
+        },
+        "setMistakes": {
+          "type": "int",
+          "min": 0,
+          "max": 6
+        },
+        "tensionSpeed": {
+          "type": "number",
+          "min": 0.2,
+          "max": 0.9
+        },
+        "liftSpeed": {
+          "type": "number",
+          "min": 0.3,
+          "max": 1.2
+        }
+      },
+      "presets": {
+        "easy": {
+          "pins": 3,
+          "liftTolerance": 0.12,
+          "tensionWindow": 0.32,
+          "stressRate": 0.5,
+          "recovery": 0.3,
+          "setMistakes": 4,
+          "tensionSpeed": 0.5,
+          "liftSpeed": 0.6
+        },
+        "normal": {
+          "pins": 4,
+          "liftTolerance": 0.09,
+          "tensionWindow": 0.26,
+          "stressRate": 0.7,
+          "recovery": 0.22,
+          "setMistakes": 3,
+          "tensionSpeed": 0.5,
+          "liftSpeed": 0.6
+        },
+        "hard": {
+          "pins": 5,
+          "liftTolerance": 0.07,
+          "tensionWindow": 0.2,
+          "stressRate": 0.9,
+          "recovery": 0.16,
+          "setMistakes": 2,
+          "tensionSpeed": 0.45,
+          "liftSpeed": 0.55
+        },
+        "expert": {
+          "pins": 6,
+          "liftTolerance": 0.055,
+          "tensionWindow": 0.16,
+          "stressRate": 1.1,
+          "recovery": 0.12,
+          "setMistakes": 1,
+          "tensionSpeed": 0.4,
+          "liftSpeed": 0.5
+        }
+      },
+      "defaultTimeoutMs": {
+        "easy": 19500,
+        "normal": 24000,
+        "hard": 28500,
+        "expert": 33000
+      },
+      "metrics": {
+        "pins": "number",
+        "pinsSet": "number",
+        "drops": "number",
+        "maxStress": "number"
+      }
+    },
+    {
+      "id": "wave_match",
+      "version": 1,
+      "name": "Wave Match",
+      "inputs": [
+        "keyboard",
+        "mouse",
+        "controller"
+      ],
+      "presentation": "focused",
+      "cursor": false,
+      "minDurationMs": 800,
+      "params": {
+        "axes": {
+          "type": "int",
+          "min": 1,
+          "max": 3
+        },
+        "tolerance": {
+          "type": "number",
+          "min": 0.03,
+          "max": 0.2
+        },
+        "dwellMs": {
+          "type": "int",
+          "min": 300,
+          "max": 2500
+        },
+        "adjustSpeed": {
+          "type": "number",
+          "min": 0.15,
+          "max": 0.8
+        }
+      },
+      "presets": {
+        "easy": {
+          "axes": 1,
+          "tolerance": 0.11,
+          "dwellMs": 600,
+          "adjustSpeed": 0.35
+        },
+        "normal": {
+          "axes": 2,
+          "tolerance": 0.09,
+          "dwellMs": 700,
+          "adjustSpeed": 0.35
+        },
+        "hard": {
+          "axes": 3,
+          "tolerance": 0.075,
+          "dwellMs": 800,
+          "adjustSpeed": 0.32
+        },
+        "expert": {
+          "axes": 3,
+          "tolerance": 0.055,
+          "dwellMs": 1000,
+          "adjustSpeed": 0.3
+        }
+      },
+      "defaultTimeoutMs": {
+        "easy": 10600,
+        "normal": 15700,
+        "hard": 20800,
+        "expert": 21000
+      },
+      "metrics": {
+        "axes": "number",
+        "finalError": "number",
+        "breaks": "number"
+      }
+    },
+    {
+      "id": "trace_path",
+      "version": 1,
+      "name": "Trace Path",
+      "inputs": [
+        "keyboard",
+        "mouse",
+        "controller"
+      ],
+      "presentation": "focused",
+      "cursor": false,
+      "minDurationMs": 1500,
+      "params": {
+        "segments": {
+          "type": "int",
+          "min": 3,
+          "max": 10
+        },
+        "corridor": {
+          "type": "number",
+          "min": 0.025,
+          "max": 0.09
+        },
+        "checkpoints": {
+          "type": "int",
+          "min": 2,
+          "max": 6
+        },
+        "contactBudgetMs": {
+          "type": "int",
+          "min": 150,
+          "max": 2000
+        },
+        "maxContacts": {
+          "type": "int",
+          "min": 1,
+          "max": 6
+        },
+        "speed": {
+          "type": "number",
+          "min": 0.2,
+          "max": 0.8
+        }
+      },
+      "presets": {
+        "easy": {
+          "segments": 4,
+          "corridor": 0.075,
+          "checkpoints": 2,
+          "contactBudgetMs": 1400,
+          "maxContacts": 5,
+          "speed": 0.42
+        },
+        "normal": {
+          "segments": 6,
+          "corridor": 0.06,
+          "checkpoints": 3,
+          "contactBudgetMs": 1000,
+          "maxContacts": 4,
+          "speed": 0.42
+        },
+        "hard": {
+          "segments": 7,
+          "corridor": 0.047,
+          "checkpoints": 4,
+          "contactBudgetMs": 700,
+          "maxContacts": 3,
+          "speed": 0.4
+        },
+        "expert": {
+          "segments": 9,
+          "corridor": 0.036,
+          "checkpoints": 5,
+          "contactBudgetMs": 450,
+          "maxContacts": 2,
+          "speed": 0.38
+        }
+      },
+      "defaultTimeoutMs": {
+        "easy": 12495,
+        "normal": 13695,
+        "hard": 14600,
+        "expert": 16137
+      },
+      "metrics": {
+        "checkpoints": "number",
+        "reached": "number",
+        "contacts": "number",
+        "contactMs": "number",
+        "deviation": "number",
+        "fallback": "boolean"
+      }
+    },
+    {
+      "id": "pattern_rebuild",
+      "version": 1,
+      "name": "Pattern Rebuild",
+      "inputs": [
+        "keyboard",
+        "mouse",
+        "controller"
+      ],
+      "presentation": "focused",
+      "cursor": false,
+      "minDurationMs": 1500,
+      "params": {
+        "size": {
+          "type": "int",
+          "min": 3,
+          "max": 5
+        },
+        "pieces": {
+          "type": "int",
+          "min": 2,
+          "max": 7
+        },
+        "previewMs": {
+          "type": "int",
+          "min": 1000,
+          "max": 8000
+        },
+        "rotation": {
+          "type": "bool"
+        },
+        "submissions": {
+          "type": "int",
+          "min": 1,
+          "max": 4
+        }
+      },
+      "presets": {
+        "easy": {
+          "size": 3,
+          "pieces": 3,
+          "previewMs": 4000,
+          "rotation": false,
+          "submissions": 3
+        },
+        "normal": {
+          "size": 4,
+          "pieces": 4,
+          "previewMs": 3500,
+          "rotation": false,
+          "submissions": 2
+        },
+        "hard": {
+          "size": 4,
+          "pieces": 5,
+          "previewMs": 3500,
+          "rotation": true,
+          "submissions": 2
+        },
+        "expert": {
+          "size": 5,
+          "pieces": 6,
+          "previewMs": 3200,
+          "rotation": true,
+          "submissions": 1
+        }
+      },
+      "defaultTimeoutMs": {
+        "easy": 22000,
+        "normal": 25500,
+        "hard": 37000,
+        "expert": 42200
+      },
+      "metrics": {
+        "pieces": "number",
+        "submissions": "number",
+        "correctCells": "number",
+        "moves": "number"
+      }
+    },
+    {
+      "id": "pulse_sync",
+      "version": 1,
+      "name": "Pulse Sync",
+      "inputs": [
+        "keyboard",
+        "mouse",
+        "controller"
+      ],
+      "presentation": "focused",
+      "cursor": false,
+      "minDurationMs": 800,
+      "params": {
+        "tracks": {
+          "type": "int",
+          "min": 2,
+          "max": 4
+        },
+        "periodMin": {
+          "type": "int",
+          "min": 700,
+          "max": 3000
+        },
+        "periodMax": {
+          "type": "int",
+          "min": 900,
+          "max": 4500
+        },
+        "window": {
+          "type": "number",
+          "min": 0.05,
+          "max": 0.25
+        },
+        "rounds": {
+          "type": "int",
+          "min": 1,
+          "max": 3
+        },
+        "parkMs": {
+          "type": "int",
+          "min": 0,
+          "max": 8000
+        },
+        "mistakes": {
+          "type": "int",
+          "min": 0,
+          "max": 3
+        }
+      },
+      "presets": {
+        "easy": {
+          "tracks": 2,
+          "periodMin": 1400,
+          "periodMax": 2200,
+          "window": 0.18,
+          "rounds": 1,
+          "parkMs": 4000,
+          "mistakes": 2
+        },
+        "normal": {
+          "tracks": 3,
+          "periodMin": 1200,
+          "periodMax": 2200,
+          "window": 0.14,
+          "rounds": 1,
+          "parkMs": 3500,
+          "mistakes": 1
+        },
+        "hard": {
+          "tracks": 3,
+          "periodMin": 1000,
+          "periodMax": 2000,
+          "window": 0.11,
+          "rounds": 2,
+          "parkMs": 3000,
+          "mistakes": 1
+        },
+        "expert": {
+          "tracks": 4,
+          "periodMin": 900,
+          "periodMax": 1900,
+          "window": 0.105,
+          "rounds": 2,
+          "parkMs": 2500,
+          "mistakes": 0
+        }
+      },
+      "defaultTimeoutMs": {
+        "easy": 10000,
+        "normal": 10000,
+        "hard": 17200,
+        "expert": 16800
+      },
+      "metrics": {
+        "rounds": "number",
+        "cleanSyncs": "number",
+        "phaseError": "number",
+        "parkUsedMs": "number"
+      }
+    },
+    {
+      "id": "mash",
+      "version": 1,
+      "name": "Mash",
+      "inputs": [
+        "keyboard",
+        "mouse",
+        "controller"
+      ],
+      "presentation": "compact",
+      "cursor": false,
+      "minDurationMs": 150,
+      "params": {
+        "action": {
+          "type": "enum",
+          "values": [
+            "primary",
+            "alt",
+            "next",
+            "prev",
+            "rotate"
+          ]
+        },
+        "gain": {
+          "type": "number",
+          "min": 0.02,
+          "max": 0.3
+        },
+        "decay": {
+          "type": "number",
+          "min": 0.05,
+          "max": 1
+        },
+        "maxRate": {
+          "type": "int",
+          "min": 6,
+          "max": 20
+        }
+      },
+      "presets": {
+        "easy": {
+          "action": "primary",
+          "gain": 0.12,
+          "decay": 0.25,
+          "maxRate": 14
+        },
+        "normal": {
+          "action": "primary",
+          "gain": 0.09,
+          "decay": 0.35,
+          "maxRate": 16
+        },
+        "hard": {
+          "action": "primary",
+          "gain": 0.07,
+          "decay": 0.45,
+          "maxRate": 18
+        },
+        "expert": {
+          "action": "primary",
+          "gain": 0.055,
+          "decay": 0.55,
+          "maxRate": 20
+        }
+      },
+      "defaultTimeoutMs": {
+        "easy": 5475,
+        "normal": 6425,
+        "hard": 8051,
+        "expert": 12091
+      },
+      "metrics": {
+        "taps": "number",
+        "ignored": "number",
+        "peak": "number",
+        "rate": "number"
+      }
+    },
+    {
+      "id": "trace",
+      "version": 1,
+      "name": "Trace Sweep",
+      "inputs": [
+        "keyboard",
+        "mouse",
+        "controller"
+      ],
+      "presentation": "compact",
+      "cursor": true,
+      "minDurationMs": 150,
+      "params": {
+        "direction": {
+          "type": "enum",
+          "values": [
+            "upper",
+            "lower",
+            "random"
+          ]
+        },
+        "sweeps": {
+          "type": "int",
+          "min": 1,
+          "max": 3
+        },
+        "tolerance": {
+          "type": "number",
+          "min": 0.08,
+          "max": 0.4
+        },
+        "sensitivity": {
+          "type": "number",
+          "min": 0.25,
+          "max": 4
+        }
+      },
+      "presets": {
+        "easy": {
+          "direction": "upper",
+          "sweeps": 1,
+          "tolerance": 0.2,
+          "sensitivity": 1.3
+        },
+        "normal": {
+          "direction": "random",
+          "sweeps": 1,
+          "tolerance": 0.15,
+          "sensitivity": 1
+        },
+        "hard": {
+          "direction": "random",
+          "sweeps": 2,
+          "tolerance": 0.12,
+          "sensitivity": 1
+        },
+        "expert": {
+          "direction": "random",
+          "sweeps": 3,
+          "tolerance": 0.1,
+          "sensitivity": 0.85
+        }
+      },
+      "defaultTimeoutMs": {
+        "easy": 7000,
+        "normal": 7000,
+        "hard": 10000,
+        "expert": 13000
+      },
+      "metrics": {
+        "sweeps": "number",
+        "travel": "number",
+        "backtrack": "number",
+        "eases": "number"
+      }
+    },
+    {
+      "id": "qte",
+      "version": 1,
+      "name": "Quick Time",
+      "inputs": [
+        "keyboard",
+        "mouse",
+        "controller"
+      ],
+      "presentation": "compact",
+      "cursor": false,
+      "minDurationMs": 150,
+      "params": {
+        "prompts": {
+          "type": "prompts",
+          "maxItems": 8
+        },
+        "mistakes": {
+          "type": "int",
+          "min": 0,
+          "max": 3
+        },
+        "leadMs": {
+          "type": "int",
+          "min": 250,
+          "max": 1500
+        }
+      },
+      "presets": {
+        "easy": {
+          "prompts": [
+            {
+              "type": "press",
+              "actions": [
+                "primary"
+              ],
+              "windowMs": 1600
+            }
+          ],
+          "mistakes": 1,
+          "leadMs": 700
+        },
+        "normal": {
+          "prompts": [
+            {
+              "type": "press",
+              "actions": [
+                "primary"
+              ],
+              "windowMs": 1100
+            }
+          ],
+          "mistakes": 0,
+          "leadMs": 600
+        },
+        "hard": {
+          "prompts": [
+            {
+              "type": "press",
+              "actions": [
+                "primary"
+              ],
+              "windowMs": 850
+            },
+            {
+              "type": "hold",
+              "actions": [
+                "alt"
+              ],
+              "windowMs": 900,
+              "durationMs": 900,
+              "earlyRelease": "fail"
+            }
+          ],
+          "mistakes": 0,
+          "leadMs": 500
+        },
+        "expert": {
+          "prompts": [
+            {
+              "type": "react",
+              "actions": [
+                "primary"
+              ],
+              "windowMs": 600,
+              "minDelayMs": 700,
+              "maxDelayMs": 2200
+            },
+            {
+              "type": "alternate",
+              "actions": [
+                "left",
+                "right"
+              ],
+              "windowMs": 2400,
+              "count": 8
+            },
+            {
+              "type": "release",
+              "actions": [
+                "primary"
+              ],
+              "windowMs": 900,
+              "durationMs": 1400,
+              "targetStart": 0.6,
+              "targetWidth": 0.14
+            }
+          ],
+          "mistakes": 0,
+          "leadMs": 450
+        }
+      },
+      "defaultTimeoutMs": {
+        "easy": 6620,
+        "normal": 3460,
+        "hard": 5670,
+        "expert": 11130
+      },
+      "metrics": {
+        "prompts": "number",
+        "completed": "number",
+        "meanReactionMs": "number"
+      }
+    }
+  ]
+}

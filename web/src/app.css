@@ -1,0 +1,10 @@
+/* Cortex Minigames. Tokens come from cortex.css (a verbatim copy of cortex-design/tokens.css).
+   This file only loads the display face; component styles live in their components. */
+@font-face {
+  font-family: 'Barlow Condensed';
+  src: url('./assets/cortex-display.woff2') format('woff2');
+  font-weight: 800;
+  font-style: italic;
+  font-display: block;
+}
+:root { font-synthesis: style; }

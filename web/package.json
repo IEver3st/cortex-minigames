@@ -1,0 +1,22 @@
+{
+  "name": "cortex-minigames-ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "bun test",
+    "catalog": "bun run scripts/emit-catalog.ts",
+    "build": "bun run catalog && vite build"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@types/bun": "^1.4.2",
+    "happy-dom": "20.14.5",
+    "svelte": "5.57.1",
+    "svelte-check": "4.7.6",
+    "typescript": "^6.0.0",
+    "vite": "8.3.1"
+  }
+}
