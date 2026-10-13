@@ -1,6 +1,13 @@
 # Cortex Minigames
 
-Free public release **1.0.0**. Twelve minigames, composable QTEs and server-issued attempts for FiveM
+![Cortex Minigames](media/tebex-hero.jpg)
+
+[![Version 1.1.0](https://img.shields.io/badge/version-1.1.0-blue?style=flat-square)](https://github.com/IEver3st/cortex-minigames/releases/latest)
+[![Free to use](https://img.shields.io/badge/price-free-green?style=flat-square)](LICENSE)
+[![Discord](https://img.shields.io/badge/discord-GSD%20Modifications-5865F2?style=flat-square)](https://discord.gg/Atwt5nxaCV)
+[![Store](https://img.shields.io/badge/store-gsd--modifications.tebex.io-6e8ffa?style=flat-square)](https://gsd-modifications.tebex.io/)
+
+Free public release. Twelve minigames, composable QTEs and server-issued attempts for FiveM
 resources. The package includes readable Lua, a compiled Svelte UI, configuration, locales and a
 copyable integration demo. The resource folder must remain named `cortex-minigames`.
 
@@ -15,6 +22,17 @@ Results describe what happened. They never authorize a reward on their own.
 - Server-issued attempts: server-created, player-bound, expiring, replay-safe results delivered only
   to the owning server resource. Security model: [docs/security.md](docs/security.md).
 - Keyboard, mouse and controller. Presets `easy`, `normal`, `hard`, `expert`. Seeded generation.
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Timing Check](media/screenshots/02-timing-check.png) | ![Trace Sweep](media/screenshots/03-trace-sweep.png) |
+| ![Circuit Routing](media/screenshots/04-circuit-routing.png) | ![Sequence Recall](media/screenshots/05-sequence-recall.png) |
+| ![QTE chains](media/screenshots/06-qte-chains.png) | ![Pressure Control](media/screenshots/07-pressure-control.png) |
+
+Captured from the real UI. Download the latest build from
+[Releases](https://github.com/IEver3st/cortex-minigames/releases/latest).
 
 ## Requirements
 
@@ -282,6 +300,15 @@ input device, resolution and UI scale. Do not post credentials or private player
 Native CEF, controller input, focus and restarts, multiplayer isolation and performance still need
 server-owner acceptance. Follow the three checks in [docs/release.md](docs/release.md); offline
 tests and browser captures do not establish those results.
+
+## More from GSD Modifications
+
+Cortex Minigames is one of the free support scripts behind the Cortex range. The same team makes
+paid FiveM scripts, including Cortex PolCam, HUD, Chat and Rewind, and the free
+[Cortex Library](https://github.com/IEver3st/cortex-lib) they share.
+
+- Store: [gsd-modifications.tebex.io](https://gsd-modifications.tebex.io/)
+- Discord: [discord.gg/Atwt5nxaCV](https://discord.gg/Atwt5nxaCV)
 
 ## Licence
 
