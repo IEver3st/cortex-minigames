@@ -7,6 +7,11 @@
 [![Discord](https://img.shields.io/badge/discord-GSD%20Modifications-5865F2?style=flat-square)](https://discord.gg/Atwt5nxaCV)
 [![Store](https://img.shields.io/badge/store-gsd--modifications.tebex.io-6e8ffa?style=flat-square)](https://gsd-modifications.tebex.io/)
 
+> [!TIP]
+> **Made by GSD Modifications.** Get the paid Cortex scripts (PolCam, HUD, Chat, Rewind and more) at
+> **[gsd-modifications.tebex.io](https://gsd-modifications.tebex.io/)**, and get help in our
+> [Discord](https://discord.gg/Atwt5nxaCV). Also free: [Cortex Library](https://github.com/IEver3st/cortex-lib).
+
 Free public release. Twelve minigames, composable QTEs and server-issued attempts for FiveM
 resources. The package includes readable Lua, a compiled Svelte UI, configuration, locales and a
 copyable integration demo. The resource folder must remain named `cortex-minigames`.
@@ -300,15 +305,6 @@ input device, resolution and UI scale. Do not post credentials or private player
 Native CEF, controller input, focus and restarts, multiplayer isolation and performance still need
 server-owner acceptance. Follow the three checks in [docs/release.md](docs/release.md); offline
 tests and browser captures do not establish those results.
-
-## More from GSD Modifications
-
-Cortex Minigames is one of the free support scripts behind the Cortex range. The same team makes
-paid FiveM scripts, including Cortex PolCam, HUD, Chat and Rewind, and the free
-[Cortex Library](https://github.com/IEver3st/cortex-lib) they share.
-
-- Store: [gsd-modifications.tebex.io](https://gsd-modifications.tebex.io/)
-- Discord: [discord.gg/Atwt5nxaCV](https://discord.gg/Atwt5nxaCV)
 
 ## Licence
 
