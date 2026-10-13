@@ -53,6 +53,13 @@ end
 --- The single terminal path for a whole session.
 function Session.finish(s, result)
     if not s or s.terminal then return false end
+    -- Whatever ends a sequence (escape, context, stop, fault, deadline), the caller gets the
+    -- aggregate shape with the steps recorded so far.
+    if s.kind == 'sequence' and result.steps == nil then
+        local aggregate = CortexMinigames.Sequence.aggregate(s, result.status, result.reason)
+        aggregate.error = result.error
+        result = aggregate
+    end
     s.terminal = result
     s.state = 'settling'
     local run = s.run
@@ -61,7 +68,9 @@ function Session.finish(s, result)
         send('close', { sid = run.sid, status = result.status, reason = result.reason, feedbackMs = s.spec.feedbackMs or 0 })
     end
     releaseFocus(s)
-    Input.reset()
+    Input.reset(function(axes)
+        if run then send('axes', { sid = run.sid, lx = axes.lx, ly = axes.ly, rt = axes.rt }) end
+    end)
     if active == s then active = nil end
     remember(s.id, s.owner)
     s.state = 'closed'
@@ -105,6 +114,7 @@ function Session.openRun(s, spec, step)
     local practice = spec.practice == 'always' or (spec.practice == 'auto' and not Prefs.hasPracticed(spec.game))
     run.practice = practice
     s.run = run
+    Input.rearm() -- a new run's engine starts neutral: resend stick values that are still held
     send('open', {
         sid = run.sid,
         spec = {
@@ -190,11 +200,15 @@ end
 ---------------------------------------------------------------------------------------------------
 -- Public runtime API (used by exports, sequences and server attempts)
 
+local function refuse(spec, reason)
+    if spec.kind == 'sequence' then return Schema.aggregateSequence(nil, spec, {}, 'rejected', reason) end
+    return Schema.makeResult(nil, spec.game, 'rejected', reason)
+end
+
 --- Start a normalised session. Returns true, session or false, rejectedResult. Never yields.
 function Session.begin(owner, spec, onDone)
-    local game = spec.kind == 'sequence' and spec.steps[1].game or spec.game
-    if active then return false, Schema.makeResult(nil, game, 'rejected', 'busy') end
-    if IsNuiFocused() or IsPauseMenuActive() then return false, Schema.makeResult(nil, game, 'rejected', 'focus_unavailable') end
+    if active then return false, refuse(spec, 'busy') end
+    if IsNuiFocused() or IsPauseMenuActive() then return false, refuse(spec, 'focus_unavailable') end
     counter = counter + 1
     local s = {
         id = ('cmg-%d-%d'):format(generation, counter),
@@ -269,8 +283,17 @@ local function current(data)
     return s, s.run
 end
 
+--- Bounded single-line text from a UI field, or `fallback`.
+local function detail(value, max, fallback)
+    if type(value) ~= 'string' then return fallback end
+    value = (value:gsub('%c', '')):sub(1, max)
+    return value ~= '' and value or fallback
+end
+
 handle('boot', function(_, reply)
-    -- A boot while a session is live means the UI reloaded and lost its state: fail closed.
+    -- Safe to repeat while idle (the UI retries a failed boot) and while a run is still preparing
+    -- (the UI cannot have drawn it). A boot while a run is live means the UI reloaded and lost its
+    -- state: fail closed.
     local s = active
     if s and s.run and s.run.state ~= 'preparing' then Session.finish(s, result(s, 'error', 'ui_error')) end
     reply({ ok = true, data = { gen = generation, prefs = Prefs.effective(), strings = CortexMinigames.Locale.ui() } })
@@ -283,8 +306,12 @@ handle('ready', function(data, reply)
         local reason = type(data.reason) == 'string' and data.reason or 'invalid_params'
         local status = READY_REASONS[reason] or 'rejected'
         if not READY_REASONS[reason] then reason = 'invalid_params' end
-        Log.warn('run.rejected_by_ui', { id = s.id, reason = reason, field = type(data.field) == 'string' and data.field:sub(1, 48) or '', message = type(data.message) == 'string' and data.message:sub(1, 64) or '' })
-        finishRun(s, result(s, status, reason))
+        -- The UI's rule code (e.g. time_budget_too_short) reaches the developer as error.message.
+        local problem = { field = detail(data.field, 48, 'params'), message = detail(data.message, 64, reason) }
+        Log.warn('run.rejected_by_ui', { id = s.id, reason = reason, field = problem.field, message = problem.message })
+        local refused = result(s, status, reason)
+        refused.error = problem
+        finishRun(s, refused)
         return reply({ ok = true })
     end
     local timeout = data.timeoutMs
@@ -294,18 +321,18 @@ handle('ready', function(data, reply)
         return reply({ ok = false, error = 'invalid_timeout' })
     end
     run.timeoutMs = timeout
-    if not s.focus then
-        -- Focus is taken only now: configuration is valid and the UI is ready to draw.
-        if IsNuiFocused() then
-            Session.finish(s, result(s, 'rejected', 'focus_unavailable'))
-            return reply({ ok = false, error = 'focus_unavailable' })
-        end
-        SetNuiFocus(true, wantsCursor(run.spec))
-        SetNuiFocusKeepInput(false)
-        s.focus = true
+    -- Focus is taken only now: configuration is valid and the UI is ready to draw.
+    if not s.focus and IsNuiFocused() then
+        Session.finish(s, result(s, 'rejected', 'focus_unavailable'))
+        return reply({ ok = false, error = 'focus_unavailable' })
     end
+    -- The cursor is chosen per run: steps of one sequence can need different input.
+    SetNuiFocus(true, wantsCursor(run.spec))
+    SetNuiFocusKeepInput(false)
+    s.focus = true
     run.state = 'ready'
-    run.deadline = now() + (run.practice and Config.Session.practiceTimeoutMs or 4000)
+    -- A practice confirm near the end of the window still gets its ready cue.
+    run.deadline = now() + (run.practice and Config.Session.practiceTimeoutMs + Schema.PRACTICE_GRACE_MS or Schema.READY_MS)
     s.state = 'ready'
     send('start', { sid = run.sid })
     reply({ ok = true })
@@ -343,9 +370,28 @@ handle('cancel', function(data, reply)
     reply({ ok = true })
 end)
 
+-- The UI paused its simulation (render stall). `stalledMs` is the run's cumulative paused time, so
+-- repeats are harmless; the hard deadline grows by the increase, capped per run.
+handle('stall', function(data, reply)
+    local s, run = current(data)
+    if not s or run.state ~= 'playing' then return reply({ ok = false, error = 'stale' }) end
+    local stalled = data.stalledMs
+    if not Schema.isInt(stalled) or stalled < (run.stalledMs or 0) then return reply({ ok = false, error = 'invalid_stall' }) end
+    run.stalledMs = stalled
+    local granted = math.min(stalled, run.timeoutMs, Schema.MAX_STALL_EXTENSION_MS)
+    local added = granted - (run.stallGrantedMs or 0)
+    if added > 0 then
+        run.stallGrantedMs = granted
+        run.deadline = run.deadline + added
+    end
+    reply({ ok = true })
+end)
+
+-- A game threw in the UI ({ sid, message }): end the session as a UI error.
 handle('fault', function(data, reply)
     local s = current(data)
     if not s then return reply({ ok = false, error = 'stale' }) end
+    Log.warn('run.ui_fault', { id = s.id, message = detail(data.message, 120, '') })
     Session.finish(s, result(s, 'error', 'ui_error'))
     reply({ ok = true })
 end)

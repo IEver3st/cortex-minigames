@@ -27,6 +27,7 @@ export interface MockResult {
 const STARTUP_TIMEOUT_MS = 5000;
 const HARD_GRACE_MS = 1500;
 const PRACTICE_IDLE_MS = 30000;
+const MAX_STALL_EXTENSION_MS = 15000;
 
 export class MockLua {
   gen = 1;
@@ -37,6 +38,8 @@ export class MockLua {
   private timer = 0;
   private counter = 0;
   private started = 0;
+  private deadlineAt = 0;
+  private stallGranted = 0;
 
   constructor(private deliver: (message: object) => void, private prefs: Prefs) {
     setLocalHandler((name, body) => this.handle(name, body));
@@ -110,7 +113,22 @@ export class MockLua {
         this.arm(PRACTICE_IDLE_MS, () => this.finish('cancelled', 'practice_idle'));
         return { ok: true };
       case 'began':
-        this.arm((this.spec?.timeoutMs ?? 10000) + HARD_GRACE_MS, () => this.finish('timeout', 'hard_deadline'));
+        this.stallGranted = 0;
+        this.deadlineAt = performance.now() + (this.spec?.timeoutMs ?? 10000) + HARD_GRACE_MS;
+        this.arm(this.deadlineAt - performance.now(), () => this.finish('timeout', 'hard_deadline'));
+        return { ok: true };
+      case 'stall': {
+        // Cumulative paused ms: the wall-clock deadline grows by the increase, capped per run.
+        const granted = Math.min(Number(body.stalledMs) || 0, this.spec?.timeoutMs ?? 10000, MAX_STALL_EXTENSION_MS);
+        if (granted > this.stallGranted) {
+          this.deadlineAt += granted - this.stallGranted;
+          this.stallGranted = granted;
+          this.arm(this.deadlineAt - performance.now(), () => this.finish('timeout', 'hard_deadline'));
+        }
+        return { ok: true };
+      }
+      case 'fault':
+        this.finish('error', 'ui_error');
         return { ok: true };
       case 'cancel':
         this.finish('cancelled', 'player_cancelled');

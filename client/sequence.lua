@@ -7,6 +7,7 @@
 --   retry     the step reruns (fresh seed unless the caller fixed one) up to `retries` more times,
 --             then behaves like `stop`
 -- Cancellation, errors and rejections end the whole sequence immediately with that status.
+-- Success needs every required step passed and at least one step passed.
 
 CortexMinigames = CortexMinigames or {}
 
@@ -15,23 +16,12 @@ local Sequence = {}
 
 local function Session() return CortexMinigames.Session end
 
-local function estimateDeadline(spec)
-    local total = 0
-    for _, step in ipairs(spec.steps) do
-        local attempts = 1 + (step.retries or 0)
-        -- Per attempt: gameplay budget, plus room for the ready cue or a first-use practice card and feedback.
-        total = total + attempts * (Schema.estimateTimeout(step) + 8000 + (step.feedbackMs or 0) + Config.Session.stepGapMs)
-    end
-    return math.min(Config.Bounds.maxSequenceDeadlineMs, total)
-end
-
 function Sequence.start(s)
     s.stepIndex = 1
     s.attempt = 0
     s.steps = {}
-    s.impossible = false
-    s.retriesUsed = 0
-    s.deadlineAt = GetGameTimer() + (s.spec.deadlineMs or estimateDeadline(s.spec))
+    -- Same budget the server uses for the attempt's expiry (Schema.budgetMs).
+    s.deadlineAt = GetGameTimer() + Schema.budgetMs(s.spec)
     Sequence.runStep(s)
 end
 
@@ -42,34 +32,9 @@ function Sequence.runStep(s)
     Session().openRun(s, step, { index = s.stepIndex, total = #s.spec.steps })
 end
 
---- Aggregate result for the whole sequence so far.
+--- Aggregate result for the whole sequence so far (shared rules: Schema.aggregateSequence).
 function Sequence.aggregate(s, status, reason)
-    local scores, completed, mistakes, duration, failedRequired = {}, 0, 0, 0, 0
-    for index, entry in ipairs(s.steps or {}) do
-        mistakes = mistakes + (entry.mistakes or 0)
-        duration = duration + (entry.durationMs or 0)
-        if entry.status == 'success' then
-            completed = completed + 1
-            if entry.score then scores[#scores + 1] = entry.score end
-        elseif s.spec.steps[index].required then
-            failedRequired = failedRequired + 1
-        end
-    end
-    local score = nil
-    if #scores > 0 then
-        local sum = 0
-        for _, value in ipairs(scores) do sum = sum + value end
-        score = math.floor(sum / #scores + 0.5)
-    end
-    local result = Schema.makeResult(s.id, 'sequence', status, reason)
-    -- Scores only mean something for played-out sequences, never for cancelled or broken ones.
-    result.score = (status == 'success' or status == 'failed' or status == 'timeout') and score or nil
-    result.mistakes = mistakes
-    result.durationMs = duration
-    result.grade = Schema.gradeFor(status, result.score, mistakes)
-    result.metrics = { steps = #s.spec.steps, completed = completed, retries = s.retriesUsed or 0, failedRequired = failedRequired }
-    result.steps = s.steps or {}
-    return result
+    return Schema.aggregateSequence(s.id, s.spec, s.steps or {}, status, reason)
 end
 
 local function record(s, stepResult)
@@ -100,20 +65,20 @@ function Sequence.onStepResult(s, stepResult)
     record(s, stepResult)
     local status = stepResult.status
     if status == 'cancelled' or status == 'error' or status == 'rejected' then
-        return Session().finish(s, Sequence.aggregate(s, status, stepResult.reason))
+        local result = Sequence.aggregate(s, status, stepResult.reason)
+        result.error = stepResult.error
+        return Session().finish(s, result)
     end
     if status ~= 'success' then
         if step.onFail == 'retry' and s.attempt <= step.retries then
-            s.retriesUsed = s.retriesUsed + 1
             return later(s, function() Sequence.runStep(s) end)
         end
         if step.onFail ~= 'continue' then
             return Session().finish(s, Sequence.aggregate(s, 'failed', 'step_failed'))
         end
-        if step.required then s.impossible = true end
     end
     if s.stepIndex >= #s.spec.steps then
-        if s.impossible then return Session().finish(s, Sequence.aggregate(s, 'failed', 'step_failed')) end
+        if not Schema.sequenceCanSucceed(s.spec, s.steps) then return Session().finish(s, Sequence.aggregate(s, 'failed', 'step_failed')) end
         return Session().finish(s, Sequence.aggregate(s, 'success', 'completed'))
     end
     s.stepIndex = s.stepIndex + 1

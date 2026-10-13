@@ -35,7 +35,7 @@
           {#if spec.instruction}<p class="instruction">{spec.instruction}</p>{/if}
         </div>
         {#if session.mistakes > 0 && session.phase === 'playing'}
-          {#key session.flash}<span class="mistakes cx-display" aria-label="Mistakes">✕&nbsp;{session.mistakes}</span>{/key}
+          {#key session.flash}<span class="mistakes cx-display" aria-label={t('ui.mistakes', 'Mistakes')}>✕&nbsp;{session.mistakes}</span>{/key}
         {/if}
       </header>
 
@@ -44,7 +44,8 @@
       </div>
 
       <div class="mechanic">
-        {#if View}<View />{/if}
+        <!-- A run that faulted before it was built has no state to draw; only its error banner shows. -->
+        {#if View && session.view.s}<View />{/if}
 
         {#if session.phase === 'practice'}
           <div class="overlay practice" role="button" tabindex="-1" onclick={() => session.tap('primary')} onkeydown={() => {}}>

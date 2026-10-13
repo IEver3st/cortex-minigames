@@ -437,10 +437,10 @@
         }
       },
       "defaultTimeoutMs": {
-        "easy": 11000,
-        "normal": 14000,
-        "hard": 17000,
-        "expert": 19000
+        "easy": 12959,
+        "normal": 16125,
+        "hard": 18942,
+        "expert": 20850
       },
       "metrics": {
         "inBandRatio": "number",
@@ -660,7 +660,7 @@
       ],
       "presentation": "focused",
       "cursor": false,
-      "minDurationMs": 1500,
+      "minDurationMs": 560,
       "params": {
         "pins": {
           "type": "int",
@@ -769,7 +769,7 @@
       ],
       "presentation": "focused",
       "cursor": false,
-      "minDurationMs": 800,
+      "minDurationMs": 280,
       "params": {
         "axes": {
           "type": "int",
@@ -841,7 +841,7 @@
       ],
       "presentation": "focused",
       "cursor": false,
-      "minDurationMs": 1500,
+      "minDurationMs": 700,
       "params": {
         "segments": {
           "type": "int",
@@ -934,7 +934,7 @@
       ],
       "presentation": "focused",
       "cursor": false,
-      "minDurationMs": 1500,
+      "minDurationMs": 1200,
       "params": {
         "size": {
           "type": "int",
@@ -1014,7 +1014,7 @@
       ],
       "presentation": "focused",
       "cursor": false,
-      "minDurationMs": 800,
+      "minDurationMs": 450,
       "params": {
         "tracks": {
           "type": "int",
@@ -1114,7 +1114,7 @@
       ],
       "presentation": "compact",
       "cursor": false,
-      "minDurationMs": 150,
+      "minDurationMs": 120,
       "params": {
         "action": {
           "type": "enum",
@@ -1145,34 +1145,34 @@
       "presets": {
         "easy": {
           "action": "primary",
-          "gain": 0.12,
-          "decay": 0.25,
+          "gain": 0.1,
+          "decay": 0.2,
           "maxRate": 14
         },
         "normal": {
           "action": "primary",
-          "gain": 0.09,
-          "decay": 0.35,
+          "gain": 0.1,
+          "decay": 0.3,
           "maxRate": 16
         },
         "hard": {
           "action": "primary",
-          "gain": 0.07,
-          "decay": 0.45,
+          "gain": 0.09,
+          "decay": 0.36,
           "maxRate": 18
         },
         "expert": {
           "action": "primary",
-          "gain": 0.055,
-          "decay": 0.55,
+          "gain": 0.1,
+          "decay": 0.48,
           "maxRate": 20
         }
       },
       "defaultTimeoutMs": {
-        "easy": 5475,
-        "normal": 6425,
-        "hard": 8051,
-        "expert": 12091
+        "easy": 8000,
+        "normal": 9250,
+        "hard": 12259,
+        "expert": 14364
       },
       "metrics": {
         "taps": "number",

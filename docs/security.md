@@ -46,7 +46,10 @@ For every `ack` and `complete`:
    issued spec in order, attempts within the retry bound, and an aggregate success needs every
    required step to have succeeded.
 9. Plausibility: reported duration ≤ server-measured elapsed time + `durationSlackMs`; a success
-   cannot be faster than the game's `minDurationMs`.
+   needs both reported duration and server-measured elapsed time to reach the game's
+   `minDurationMs`. For sequences, elapsed time must cover the sum of the successful steps'
+   minimums, including successes recorded before a failure or cancellation. Upper-bound slack
+   never reduces this server-clock floor. Minimums are coarse catalog bounds, not proof of play.
 10. **Atomic claim**: the attempt is marked claimed and removed before `onComplete` runs, so
     concurrent reports can never deliver twice. Delivery goes to the owning resource only.
 

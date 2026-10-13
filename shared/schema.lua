@@ -9,6 +9,11 @@ local Schema = {}
 Schema.API_VERSION = 1
 Schema.PROTOCOL = 1
 Schema.MAX_SEED = 2147483647
+Schema.UI_MAX_TIMEOUT_MS = 180000     -- the UI refuses longer gameplay timeouts
+Schema.READY_MS = 4000                -- ready window for the cue when no practice card shows
+Schema.PRACTICE_GRACE_MS = 1500       -- after practiceTimeoutMs, so a late confirm still plays its cue
+Schema.HANDSHAKE_MS = 1000            -- open to ready round trip, budgeted per run
+Schema.MAX_STALL_EXTENSION_MS = 15000 -- most a run's deadline can grow for UI-reported stalls
 
 local STATUSES = { success = true, failed = true, cancelled = true, timeout = true, error = true, rejected = true }
 local MODES = { auto = true, keyboard = true, mouse = true, controller = true }
@@ -37,6 +42,35 @@ for status, list in pairs(Schema.catalog.reasons) do
 end
 Schema.presets = {}
 for _, preset in ipairs(Schema.catalog.presets) do Schema.presets[preset] = true end
+
+local function isWhole(value) return type(value) == 'number' and value == value and value == math.floor(value) and value < math.huge end
+
+--- Normalise operator config once at load: allowedGames in list or set form, and timeout bounds
+--- the UI can honour. Prints one warning when a value had to change.
+function Schema.normalizeConfig()
+    local bounds, notes = Config.Bounds, {}
+    local allowed = {}
+    for key, value in pairs(type(bounds.allowedGames) == 'table' and bounds.allowedGames or {}) do
+        local id = math.type(key) == 'integer' and value or (value == true and key or nil)
+        if type(id) == 'string' then
+            allowed[id] = true
+            if not Schema.games[id] then notes[#notes + 1] = 'allowedGames lists unknown game ' .. id end
+        end
+    end
+    bounds.allowedGames = allowed
+    if not isWhole(bounds.maxTimeoutMs) or bounds.maxTimeoutMs > Schema.UI_MAX_TIMEOUT_MS then
+        notes[#notes + 1] = ('maxTimeoutMs clamped to %d'):format(Schema.UI_MAX_TIMEOUT_MS)
+        bounds.maxTimeoutMs = Schema.UI_MAX_TIMEOUT_MS
+    end
+    if not isWhole(bounds.minTimeoutMs) or bounds.minTimeoutMs < 1000 or bounds.minTimeoutMs > bounds.maxTimeoutMs then
+        local min = math.min(bounds.maxTimeoutMs, math.max(1000, isWhole(bounds.minTimeoutMs) and bounds.minTimeoutMs or 1000))
+        notes[#notes + 1] = ('minTimeoutMs clamped to %d'):format(min)
+        bounds.minTimeoutMs = min
+    end
+    if #notes > 0 then print('^3[cortex-minigames] config.lua: ' .. table.concat(notes, '; ') .. '^7') end
+    return notes
+end
+Schema.normalizeConfig()
 
 ---------------------------------------------------------------------------------------------------
 -- Primitive checks
@@ -90,6 +124,15 @@ local function copyPlain(value, depth)
     return out
 end
 Schema.copyPlain = copyPlain
+
+local function samePlain(a, b, depth)
+    depth = depth or 0
+    if type(a) ~= 'table' or type(b) ~= 'table' then return a == b end
+    if depth > 4 then return false end
+    for key, item in pairs(a) do if not samePlain(item, b[key], depth + 1) then return false end end
+    for key in pairs(b) do if a[key] == nil then return false end end
+    return true
+end
 
 ---------------------------------------------------------------------------------------------------
 -- Params
@@ -205,6 +248,10 @@ local function normalizeCancel(raw, side)
             return err('invalid_options', 'cancel.' .. tostring(key), 'unknown cancel rule')
         end
     end
+    -- maxDistance only measures to an entity; alone it would silently do nothing.
+    if raw.maxDistance ~= nil and raw.entity == nil then
+        return err('invalid_options', 'cancel.maxDistance', 'maxDistance needs entity')
+    end
     -- Escape can become a failed attempt, but it can never be disabled: the player must always get out.
     if raw.escape == 'fail' then out.escape = 'fail'
     elseif raw.escape ~= nil and raw.escape ~= true and raw.escape ~= 'cancel' then
@@ -250,15 +297,19 @@ local function normalizeCommon(raw, out, side)
         out.title = text(raw.title, 64)
         if not out.title then return err('invalid_options', 'title', 'title must be text up to 64 bytes') end
     elseif raw.titleKey ~= nil then
-        out.title = CortexMinigames.Locale.key(raw.titleKey)
-        if not out.title then return err('invalid_options', 'titleKey', 'unknown locale key') end
+        local resolved = CortexMinigames.Locale.key(raw.titleKey)
+        if not resolved then return err('invalid_options', 'titleKey', 'unknown locale key') end
+        out.title = text(resolved, 64)
+        if not out.title then return err('invalid_options', 'titleKey', 'locale text must be up to 64 bytes without control characters') end
     end
     if raw.instruction ~= nil then
         out.instruction = text(raw.instruction, 140)
         if not out.instruction then return err('invalid_options', 'instruction', 'instruction must be text up to 140 bytes') end
     elseif raw.instructionKey ~= nil then
-        out.instruction = CortexMinigames.Locale.key(raw.instructionKey)
-        if not out.instruction then return err('invalid_options', 'instructionKey', 'unknown locale key') end
+        local resolved = CortexMinigames.Locale.key(raw.instructionKey)
+        if not resolved then return err('invalid_options', 'instructionKey', 'unknown locale key') end
+        out.instruction = text(resolved, 140)
+        if not out.instruction then return err('invalid_options', 'instructionKey', 'locale text must be up to 140 bytes without control characters') end
     end
     if raw.inputMode ~= nil and not MODES[raw.inputMode] then return err('invalid_options', 'inputMode', 'unknown input mode') end
     out.inputMode = raw.inputMode or out.inputMode or 'auto'
@@ -275,7 +326,9 @@ local function normalizeCommon(raw, out, side)
         if presentation.scale ~= nil and (not isFinite(presentation.scale) or presentation.scale < 0.75 or presentation.scale > 1.5) then
             return err('invalid_options', 'presentation.scale', 'scale must be 0.75..1.5')
         end
-        out.presentation = { mode = presentation.mode, anchor = presentation.anchor, scale = presentation.scale or 1.0 }
+        -- Unset fields inherit from `out` (a sequence step inherits the sequence's presentation).
+        local base = out.presentation or {}
+        out.presentation = { mode = presentation.mode or base.mode, anchor = presentation.anchor or base.anchor, scale = presentation.scale or base.scale or 1.0 }
     end
     out.presentation = out.presentation or { scale = 1.0 }
 
@@ -327,6 +380,8 @@ local function normalizeGameFields(raw, out)
         if not supported then return err('unsupported_input', 'inputMode', game.id .. ' does not support ' .. out.inputMode) end
     end
     out.game, out.preset, out.params = game.id, preset, params
+    -- Params that differ from the preset make the catalog's default timeout meaningless.
+    out.customParams = not samePlain(params, game.presets[preset] or {}) or nil
     out.seed = raw.seed and toInt(raw.seed) or nil
     out.timeoutMs = raw.timeoutMs and toInt(raw.timeoutMs) or nil
     out.presentation.mode = out.presentation.mode or game.presentation
@@ -376,7 +431,7 @@ function Schema.normalizeSequence(raw, side)
         local base = {
             inputMode = shared.inputMode, cancel = shared.cancel, audio = shared.audio, motion = shared.motion,
             practice = shared.practice, feedbackMs = shared.feedbackMs,
-            presentation = rawStep.presentation == nil and shared.presentation and { scale = shared.presentation.scale } or nil,
+            presentation = { mode = shared.presentation.mode, anchor = shared.presentation.anchor, scale = shared.presentation.scale },
         }
         local stepCommon = {
             title = rawStep.title, instruction = rawStep.instruction, titleKey = rawStep.titleKey,
@@ -416,12 +471,35 @@ function Schema.normalizeSequence(raw, side)
     return shared
 end
 
---- Best-effort default budget for a step when the caller gave none (preset default from the catalog).
+--- Gameplay budget for a run when the caller gave no timeoutMs. The catalog only knows preset
+--- defaults; the UI derives custom-param timeouts itself, so those are budgeted at the maximum.
 function Schema.estimateTimeout(spec)
     if spec.timeoutMs then return spec.timeoutMs end
+    if spec.customParams then return Config.Bounds.maxTimeoutMs end
     local game = Schema.games[spec.game]
     local estimate = game and game.defaultTimeoutMs and game.defaultTimeoutMs[spec.preset] or Config.Bounds.maxTimeoutMs
     return math.min(Config.Bounds.maxTimeoutMs, math.max(Config.Bounds.minTimeoutMs, estimate))
+end
+
+--- Worst-case wall time of one honest run: handshake, ready cue or practice card, gameplay and
+--- the hard grace. A practice card can show on any attempt unless practice is 'never'.
+local function runBudgetMs(spec)
+    local session = Config.Session
+    local ready = spec.practice ~= 'never' and (session.practiceTimeoutMs + Schema.PRACTICE_GRACE_MS) or Schema.READY_MS
+    return Schema.HANDSHAKE_MS + ready + Schema.estimateTimeout(spec) + session.hardGraceMs
+end
+
+--- Wall-clock budget for a normalised spec. The one source for the client's sequence deadline and
+--- the server attempt's expiry. A caller's deadlineMs stays authoritative for sequences.
+function Schema.budgetMs(spec)
+    if spec.kind ~= 'sequence' then return runBudgetMs(spec) end
+    if spec.deadlineMs then return spec.deadlineMs end
+    local total = 0
+    for _, step in ipairs(spec.steps) do
+        local attempt = runBudgetMs(step) + (step.feedbackMs or 0) + Config.Session.stepGapMs
+        total = total + (1 + (step.retries or 0)) * attempt
+    end
+    return math.min(Config.Bounds.maxSequenceDeadlineMs, total)
 end
 
 --- Convert a normalised spec back into plain options (no functions, no entity handles), so a
@@ -438,7 +516,6 @@ function Schema.toOptions(spec)
         cancel = spec.cancel and { escape = spec.cancel.escape, death = spec.cancel.death, radius = spec.cancel.radius } or nil,
     })
     if spec.kind == 'sequence' then
-        shared.presentation = nil
         shared.deadlineMs = spec.deadlineMs
         shared.steps = {}
         for index, step in ipairs(spec.steps) do
@@ -490,6 +567,51 @@ function Schema.gradeFor(status, score, mistakes)
     return 'pass'
 end
 
+--- Whether a fully reported step list can make the sequence a success: every step played, every
+--- required step passed, and at least one step passed.
+function Schema.sequenceCanSucceed(spec, steps)
+    local passed = 0
+    for index, step in ipairs(spec.steps) do
+        local entry = steps[index]
+        if not entry then return false end
+        if entry.status == 'success' then passed = passed + 1
+        elseif step.required then return false end
+    end
+    return passed > 0
+end
+
+--- The aggregate result of a sequence from its recorded steps. Client and server both build the
+--- sequence result here, so the numbers a caller receives never depend on who computed them.
+function Schema.aggregateSequence(sessionId, spec, steps, status, reason)
+    local scores, completed, mistakes, duration, failedRequired, retries = {}, 0, 0, 0, 0, 0
+    for index, entry in ipairs(steps) do
+        mistakes = mistakes + (entry.mistakes or 0)
+        duration = duration + (entry.durationMs or 0)
+        retries = retries + math.max(0, (entry.attempts or 1) - 1)
+        if entry.status == 'success' then
+            completed = completed + 1
+            if entry.score then scores[#scores + 1] = entry.score end
+        elseif spec.steps[index].required then
+            failedRequired = failedRequired + 1
+        end
+    end
+    local score = nil
+    if #scores > 0 then
+        local sum = 0
+        for _, value in ipairs(scores) do sum = sum + value end
+        score = math.floor(sum / #scores + 0.5)
+    end
+    local result = Schema.makeResult(sessionId, 'sequence', status, reason)
+    -- Scores only mean something for played-out sequences, never for cancelled or broken ones.
+    result.score = (status == 'success' or status == 'failed' or status == 'timeout') and score or nil
+    result.mistakes = mistakes
+    result.durationMs = duration
+    result.grade = Schema.gradeFor(status, result.score, mistakes)
+    result.metrics = { steps = #spec.steps, completed = completed, retries = retries, failedRequired = failedRequired }
+    result.steps = steps
+    return result
+end
+
 local function cleanMetrics(game, metrics)
     local out, count = {}, 0
     if type(metrics) ~= 'table' then return out end
@@ -523,7 +645,8 @@ function Schema.normalizeReport(payload, sessionId, gameId, timeoutMs, allowed)
     if (status == 'success' or status == 'failed' or status == 'timeout') then
         if not gradeConsistent(status, grade, score, mistakes) then return err('invalid_report', 'grade', 'grade contradicts status or score') end
     else
-        grade = nil
+        -- Cancelled, broken and rejected attempts never carry a score.
+        score, grade = nil, nil
     end
     return {
         apiVersion = Schema.API_VERSION,

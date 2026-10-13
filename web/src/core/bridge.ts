@@ -7,7 +7,7 @@ declare global {
   interface Window { GetParentResourceName?: () => string }
 }
 
-export type CallbackName = 'boot' | 'ready' | 'began' | 'complete' | 'cancel' | 'fault';
+export type CallbackName = 'boot' | 'ready' | 'began' | 'complete' | 'cancel' | 'fault' | 'stall';
 export type Reply = { ok: true; data?: Record<string, unknown> } | { ok: false; error: string };
 
 export const CALLBACK_TIMEOUT_MS = 4000;

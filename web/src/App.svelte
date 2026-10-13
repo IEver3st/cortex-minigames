@@ -4,13 +4,15 @@
   import { session } from './session.svelte';
   import Stage from './shell/Stage.svelte';
 
-  // Idle cost: one message listener. No frame loop, timer or audio runs until a session opens.
+  // Idle minigame runtime has no frame loop or active audio. The optional canonical presentation
+  // adapter adds its own message listener, observers and five-second readiness recovery timer.
   onMount(() => {
     const listener = (event: MessageEvent) => session.receive(event.data);
     window.addEventListener('message', listener);
     if (isNui()) void session.boot();
     return () => {
       window.removeEventListener('message', listener);
+      session.stopBoot();
       session.teardown();
     };
   });

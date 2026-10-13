@@ -17,6 +17,12 @@ export type TraceParams = {
 
 export const BOARD_W = 1.6;
 export const MOUSE_SPEED_FACTOR = 1.5;
+/** Generated paths end at least this far (straight line) from where they start, so even a run that
+ *  spends its whole contact budget cutting corners cannot finish under `minDurationMs`. */
+export const MIN_SPAN = 1;
+
+/** Nominal segment length; actual segments are 0.8 to 1.2 times this. */
+const segmentStep = (segments: number): number => ((BOARD_W - 0.3) / segments) * 1.15;
 type Point = { x: number; y: number };
 
 export type TraceState = {
@@ -74,7 +80,7 @@ export function isValidPath(path: Point[], corridor: number): boolean {
 }
 
 function generatePath(p: TraceParams, rng: Rng): Point[] | null {
-  const step = (BOARD_W - 0.3) / p.segments * 1.15;
+  const step = segmentStep(p.segments);
   const path: Point[] = [{ x: 0.12, y: rng.range(0.25, 0.75) }];
   let heading = rng.range(-0.5, 0.5);
   for (let i = 0; i < p.segments; i++) {
@@ -92,7 +98,8 @@ function generatePath(p: TraceParams, rng: Rng): Point[] | null {
     }
     if (!placed) return null;
   }
-  return path;
+  const end = path[path.length - 1];
+  return Math.hypot(end.x - path[0].x, end.y - path[0].y) >= MIN_SPAN ? path : null;
 }
 
 function fallbackPath(corridor: number): Point[] {
@@ -133,12 +140,16 @@ export const tracePath = defineGame<TraceParams, TraceState>({
   metrics: { checkpoints: 'number', reached: 'number', contacts: 'number', contactMs: 'number', deviation: 'number', fallback: 'boolean' },
   hints: [{ actions: ['up', 'down', 'left', 'right'], label: 'Steer' }],
   tutorial: 'Guide the probe down the track through each checkpoint in order. Touching the edge costs tolerance.',
-  minDurationMs: 1500,
+  // The probe must cover MIN_SPAN less the final checkpoint radius at the fastest mouse chase
+  // (0.8 × 1.5 board units/s): about 750 ms.
+  minDurationMs: 700,
   defaultTimeoutMs: (p) => Math.round(4000 + (BOARD_W * 1.6 / p.speed) * 1000 + p.segments * 600),
   check(p, timeoutMs) {
     const minimumTravel = ((BOARD_W - 0.3) / p.speed) * 1000;
     if (timeoutMs < minimumTravel * 1.4) return 'time_budget_too_short';
     if ((p.speed / 120) > p.corridor * 0.5) return 'corridor_below_precision';
+    // Sections two apart are one segment apart; the shortest segment must keep them three corridors clear.
+    if (segmentStep(p.segments) * 0.8 < p.corridor * 3) return 'corridor_too_wide';
     return null;
   },
   create(p, rng) {

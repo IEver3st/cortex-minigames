@@ -1,12 +1,13 @@
 # Game catalog and tuning
 
-Exact values come from the registry (`web/src/games/*/logic.ts`) and are emitted to `shared/catalog.json`. The tables below are generated from the same source (`web/scripts/emit-game-tables.ts`). The brief's durations were design targets; the default timeouts here are budgets, not measured completion times. Calibrate through playtesting.
+The tables below match the included `shared/catalog.json` and the `ListGames()` export.
+Default timeouts are budgets, not measured completion times. Calibrate through playtesting.
 
 ## Tuning guide
 
 - Start from a preset and override only what the fiction needs (`params = { channels = 1 }`). Presets map to concrete parameters; there is no global multiplier and no hidden mid-attempt adaptation.
 - Routine actions: `timing` or a one-prompt `qte` on `easy` or `normal`. Meaningful tasks: a focused game or a two-to-three-step sequence. Do not make every job a sequence.
-- A contradictory configuration (too short a timeout, a window below input precision, an impossible band) is rejected before focus with `invalid_params`, and `error.message` names the rule. The playground shows the same check live.
+- A contradictory configuration (too short a timeout, a window below input precision, an impossible band) is rejected before focus with `invalid_params`, and `error.message` names the rule.
 - A fixed `seed` reproduces the logical challenge exactly (RNG version 1). Use it to reproduce reports; never treat it as proof.
 - Accessibility preferences change presentation and controls only. Reduced motion removes decoration but never slows judged motion.
 
@@ -80,7 +81,7 @@ Metrics: `length`, `correct`, `previewPresses`, `meanResponseMs`. Minimum plausi
 | `workMs` | 2000–15000 | 4000 | 5500 | 7000 | 8000 |
 | `stressMs` | 500–5000 | 3000 | 2200 | 1600 | 1200 |
 | `graceMs` | 0–800 | 500 | 350 | 250 | 150 |
-| default timeout | | 11000 ms | 14000 ms | 17000 ms | 19000 ms |
+| default timeout | | 12959 ms | 16125 ms | 18942 ms | 20850 ms |
 
 Metrics: `inBandRatio`, `maxStress`, `excursions`, `workDone`. Minimum plausible success: 1500 ms.
 
@@ -152,7 +153,7 @@ Metrics: `testsUsed`, `rotations`, `baselineRotations`, `efficiency`, `fallback`
 | `liftSpeed` | 0.3–1.2 | 0.6 | 0.6 | 0.55 | 0.5 |
 | default timeout | | 19500 ms | 24000 ms | 28500 ms | 33000 ms |
 
-Metrics: `pins`, `pinsSet`, `drops`, `maxStress`. Minimum plausible success: 1500 ms.
+Metrics: `pins`, `pinsSet`, `drops`, `maxStress`. Minimum plausible success: 560 ms.
 
 ## Wave Match (`wave_match`)
 
@@ -172,7 +173,7 @@ Metrics: `pins`, `pinsSet`, `drops`, `maxStress`. Minimum plausible success: 150
 | `adjustSpeed` | 0.15–0.8 | 0.35 | 0.35 | 0.32 | 0.3 |
 | default timeout | | 10600 ms | 15700 ms | 20800 ms | 21000 ms |
 
-Metrics: `axes`, `finalError`, `breaks`. Minimum plausible success: 800 ms.
+Metrics: `axes`, `finalError`, `breaks`. Minimum plausible success: 280 ms.
 
 ## Trace Path (`trace_path`)
 
@@ -194,7 +195,7 @@ Metrics: `axes`, `finalError`, `breaks`. Minimum plausible success: 800 ms.
 | `speed` | 0.2–0.8 | 0.42 | 0.42 | 0.4 | 0.38 |
 | default timeout | | 12495 ms | 13695 ms | 14600 ms | 16137 ms |
 
-Metrics: `checkpoints`, `reached`, `contacts`, `contactMs`, `deviation`, `fallback`. Minimum plausible success: 1500 ms.
+Metrics: `checkpoints`, `reached`, `contacts`, `contactMs`, `deviation`, `fallback`. Minimum plausible success: 700 ms.
 
 ## Pattern Rebuild (`pattern_rebuild`)
 
@@ -215,7 +216,7 @@ Metrics: `checkpoints`, `reached`, `contacts`, `contactMs`, `deviation`, `fallba
 | `submissions` | 1–4 | 3 | 2 | 2 | 1 |
 | default timeout | | 22000 ms | 25500 ms | 37000 ms | 42200 ms |
 
-Metrics: `pieces`, `submissions`, `correctCells`, `moves`. Minimum plausible success: 1500 ms.
+Metrics: `pieces`, `submissions`, `correctCells`, `moves`. Minimum plausible success: 1200 ms.
 
 ## Pulse Sync (`pulse_sync`)
 
@@ -238,27 +239,27 @@ Metrics: `pieces`, `submissions`, `correctCells`, `moves`. Minimum plausible suc
 | `mistakes` | 0–3 | 2 | 1 | 1 | 0 |
 | default timeout | | 10000 ms | 10000 ms | 17200 ms | 16800 ms |
 
-Metrics: `rounds`, `cleanSyncs`, `phaseError`, `parkUsedMs`. Minimum plausible success: 800 ms.
+Metrics: `rounds`, `cleanSyncs`, `phaseError`, `parkUsedMs`. Minimum plausible success: 450 ms.
 
 ## Mash (`mash`)
 
 **Tap one key as fast as you can to fill a meter against constant decay.** Presentation: compact.
 
-**Controls.** Keyboard `Space`/`Enter` (or the configured `action`), mouse press on the keycap, pad `A`.
+**Controls.** Keyboard `Space`/`Enter` and pad `A` for the default action; configured actions use their matching key and pad glyph. Mouse press on the keycap.
 
-**Rules.** The meter drains at `decay` per second and each accepted tap adds `gain`. Holding the key is one tap (autorepeat and a second press without a release never count), and taps closer than `1000 / maxRate` ms are ignored, so macros and switch bounce cannot beat a human. Waiting never helps; the attempt only times out. Configurations whose break-even rate (`decay / gain` taps per second) exceeds 70% of `maxRate` are rejected (`mash_rate_unreachable`), as are budgets too short to fill at 75% of the cap. The keycap sits inside a thick mint ring (the meter) and presses on every tap; the fill prints as a number.
+**Rules.** The meter drains at `decay` per second and each accepted tap adds `gain`. Holding the key is one tap (autorepeat and a second press without a release never count), and taps closer than `1000 / maxRate` ms are ignored. The cap limits accepted input rate; it does not prove human input. Waiting never helps; the attempt only times out. Presets and default budgets use a sustained 7 taps per second. Configurations whose break-even rate (`decay / gain`) exceeds 70% of either that rate or `maxRate` are rejected (`mash_rate_unreachable`), as are budgets below 1.3 times the estimated fill time at 7 taps per second plus 500 ms. The keycap sits inside a thick accent ring (the meter) and presses on every tap; the fill prints as a number.
 
-**Scoring.** Score = 40% + 60% x (1 - completion time / budget). A failed attempt scores half its peak fill. `mistakes` is always 0.
+**Scoring.** Success scores from 40% to 100% according to completion time: full marks at the estimated 10 taps per second pace (or half the budget, whichever is sooner), falling to 40% at the deadline. A failed attempt scores half its peak fill. `mistakes` is always 0.
 
 | Param | Range | easy | normal | hard | expert |
 | --- | --- | --- | --- | --- | --- |
 | `action` | primary / alt / next / prev / rotate | primary | primary | primary | primary |
-| `gain` | 0.02–0.3 | 0.12 | 0.09 | 0.07 | 0.055 |
-| `decay` | 0.05–1 | 0.25 | 0.35 | 0.45 | 0.55 |
+| `gain` | 0.02–0.3 | 0.1 | 0.1 | 0.09 | 0.1 |
+| `decay` | 0.05–1 | 0.2 | 0.3 | 0.36 | 0.48 |
 | `maxRate` | 6–20 | 14 | 16 | 18 | 20 |
-| default timeout | | 5475 ms | 6425 ms | 8051 ms | 12091 ms |
+| default timeout | | 8000 ms | 9250 ms | 12259 ms | 14364 ms |
 
-Metrics: `taps`, `ignored`, `peak`, `rate`. Minimum plausible success: 150 ms.
+Metrics: `taps`, `ignored`, `peak`, `rate`. Minimum plausible success: 120 ms.
 
 ## Trace Sweep (`trace`)
 

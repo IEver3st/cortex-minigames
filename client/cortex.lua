@@ -1,7 +1,8 @@
--- Cortex adapter. The only file that knows about cortex-lib. Supported: cortex-lib 2.2.x, optional
--- and not required at startup. When present, minigame preferences live in Cortex Settings
+-- Cortex adapter. The only client file that knows about cortex-lib. Optional, including at startup.
+-- When present, minigame preferences live in Cortex Settings
 -- (exports registerSettings / getTabSetting, event cortex-lib:settingsChanged). Every call is
 -- guarded so a missing or older cortex-lib simply leaves local preferences in charge.
+-- Shared presentation uses the installed open library's own adapter, when it is readable.
 
 CortexMinigames = CortexMinigames or {}
 
@@ -15,7 +16,7 @@ local KEY_OPTIONS = {
     { value = 'KeyE', label = 'E' }, { value = 'KeyF', label = 'F' }, { value = 'KeyG', label = 'G' },
     { value = 'KeyQ', label = 'Q' }, { value = 'KeyR', label = 'R' }, { value = 'KeyT', label = 'T' },
     { value = 'KeyX', label = 'X' }, { value = 'KeyC', label = 'C' }, { value = 'KeyZ', label = 'Z' },
-    { value = 'Space', label = 'Space' }, { value = 'Enter', label = 'Enter' }, { value = 'ShiftLeft', label = 'Shift' },
+    { value = 'Space', label = 'Space' }, { value = 'ShiftLeft', label = 'Shift' }, -- Enter is reserved (Prefs.checkKey)
 }
 
 local FIELDS = {
@@ -35,6 +36,40 @@ local DEFAULTS = { volume = 0.5, muted = false, motion = 'auto', scale = 1.0, ke
 local function started()
     return GetResourceState('cortex-lib') == 'started'
 end
+
+local presentationLoaded, presentationFailed = false, false
+
+local function presentationAvailable()
+    if not started() or presentationFailed then return false end
+    if presentationLoaded then return true end
+    -- The equivalent of @cortex-lib/presentation-client.lua, without a mandatory dependency or
+    -- missing-import errors on standalone servers. Load once into this consumer's environment:
+    -- library exports must see this resource as their owner, not cortex-lib itself.
+    local read, source = pcall(LoadResourceFile, 'cortex-lib', 'presentation-client.lua')
+    if not read or type(source) ~= 'string' or source == '' then return false end
+    local adapter, problem = load(source, '@cortex-lib/presentation-client.lua', 't', _ENV)
+    if adapter then
+        local ok
+        ok, problem = pcall(adapter)
+        presentationLoaded = ok
+    end
+    if not presentationLoaded then
+        -- Do not repeat a partially executed adapter and duplicate its event/callback handlers.
+        presentationFailed = true
+        CortexMinigames.Log.warn('cortex.presentation_unavailable', { reason = tostring(problem) })
+    end
+    return presentationLoaded
+end
+
+local function notifyPresentation()
+    SendNUIMessage({ action = 'cortex-minigames:presentationAvailability', available = presentationAvailable() })
+end
+
+-- The page may mount before Lua, or after the library's start event. This bounded readiness
+-- handshake lets it discover the optional dependency without requesting missing browser assets.
+RegisterNUICallback('cortexMinigamesPresentation', function(_, cb)
+    cb({ ok = true, available = presentationAvailable() })
+end)
 
 function Cortex.register()
     registered = false
@@ -71,6 +106,7 @@ AddEventHandler('onClientResourceStart', function(resource)
     -- cortex-lib drops consumer tabs when it restarts; register again once it is back.
     if resource == 'cortex-lib' or resource == GetCurrentResourceName() then
         if Cortex.register() then onChange() end
+        notifyPresentation()
     end
 end)
 
@@ -78,6 +114,9 @@ AddEventHandler('onClientResourceStop', function(resource)
     if resource == 'cortex-lib' then
         registered = false
         onChange()
+        SendNUIMessage({ action = 'cortex-minigames:presentationAvailability', available = false })
+    elseif resource == GetCurrentResourceName() then
+        SendNUIMessage({ action = 'cortex-minigames:presentationAvailability', available = false })
     end
 end)
 

@@ -3,11 +3,14 @@
    from main.ts. Components use these tokens and --u only. */
 
 :root {
-  /* Colour: paper, ink, one mint accent. */
+  /* Colour: paper, ink, one accent. The accent is the player's shared accent
+     (Cortex settings > Shared accent), written on :root by cortex-lib's
+     dynamic-ui.js; mint is only the fallback until it arrives. */
   --paper: #f0f0e9;
   --ink: #0f1012;
-  --accent: #8fcbbf;
-  --accent-deep: #2f6e62;
+  --accent: var(--cx-accent, #8fcbbf);
+  --accent-rgb: var(--cx-accent-rgb, 143, 203, 191);
+  --accent-deep: var(--cx-accent-deep, #2f6e62);
   --muted: #b9bcc0;
   --dim: #8b9096;
   --warning: #d8ba82;

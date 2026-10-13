@@ -124,5 +124,85 @@ _, p = S.normalizeReport({ status = 'success', reason = 'completed', grade = 'pa
 H.eq(p.field, 'durationMs', 'duration bounded by timeout')
 _, p = S.normalizeReport({ status = 'success', reason = 'completed', score = 101, grade = 'pass', mistakes = 0, durationMs = 5 }, 'sid', 'timing', 6000)
 H.eq(p.field, 'score', 'score bounded')
+-- Cancelled, error and rejected reports never carry a score.
+for _, status in ipairs({ 'cancelled', 'error', 'rejected' }) do
+    local reason = ({ cancelled = 'player_cancelled', error = 'ui_error', rejected = 'busy' })[status]
+    report = S.normalizeReport({ status = status, reason = reason, score = 100, grade = 'perfect', durationMs = 0 }, 'sid', 'timing', 6000, { [status] = true })
+    H.eq(report.score, nil, status .. ' score dropped'); H.eq(report.grade, nil, status .. ' grade dropped')
+end
+
+-- cancel.maxDistance only works with an entity; alone it is a mistake, not a silent no-op.
+_, p = S.normalizeOptions({ game = 'timing', cancel = { maxDistance = 3 } }, 'client')
+H.eq(p and p.field, 'cancel.maxDistance', 'maxDistance without entity rejected')
+H.eq(p and p.message, 'maxDistance needs entity', 'maxDistance message')
+spec = S.normalizeOptions({ game = 'timing', cancel = { entity = 42, maxDistance = 3 } }, 'client')
+H.eq(spec.cancel.maxDistance, 3.0, 'maxDistance with entity accepted')
+
+-- Locale keys resolve to text under the same limits as literal title / instruction.
+CortexMinigames.Locales.en.keys['test.long'] = string.rep('x', 65)
+CortexMinigames.Locales.en.keys['test.longer'] = string.rep('x', 141)
+_, p = S.normalizeOptions({ game = 'timing', titleKey = 'test.long' }, 'server')
+H.eq(p and p.field, 'titleKey', 'titleKey text over 64 bytes rejected')
+_, p = S.normalizeOptions({ game = 'timing', instructionKey = 'test.longer' }, 'server')
+H.eq(p and p.field, 'instructionKey', 'instructionKey text over 140 bytes rejected')
+spec = S.normalizeOptions({ game = 'timing', instructionKey = 'test.long' }, 'server')
+H.ok(spec, '65-byte instruction text fits')
+
+-- Operator config: allowedGames in list or set form; timeout bounds clamped to what the UI honours.
+local printed, realPrint = {}, print
+print = function(line) printed[#printed + 1] = line end
+Config.Bounds.allowedGames = { 'timing', 'pressure' }
+S.normalizeConfig()
+H.ok(S.normalizeOptions({ game = 'pressure' }, 'client'), 'list form allows listed game')
+_, p = S.normalizeOptions({ game = 'trace' }, 'client')
+H.eq(p and p.reason, 'unknown_game', 'list form blocks the rest')
+Config.Bounds.allowedGames = { timing = true }
+S.normalizeConfig()
+_, p = S.normalizeOptions({ game = 'pressure' }, 'client')
+H.eq(p and p.reason, 'unknown_game', 'set form still works')
+Config.Bounds.allowedGames = {}
+S.normalizeConfig()
+H.eq(#printed, 0, 'valid config prints nothing')
+Config.Bounds.maxTimeoutMs, Config.Bounds.minTimeoutMs = 300000, 10
+S.normalizeConfig()
+H.eq(Config.Bounds.maxTimeoutMs, 180000, 'maxTimeoutMs clamped to the UI cap')
+H.eq(Config.Bounds.minTimeoutMs, 1000, 'minTimeoutMs clamped to 1000')
+H.eq(#printed, 1, 'one warning printed')
+print = realPrint
+
+-- Budgets: custom params have no catalog default, so they budget at the maximum.
+local game = S.games.timing
+H.eq(S.estimateTimeout(S.normalizeOptions({ game = 'timing' }, 'server')), game.defaultTimeoutMs.normal, 'preset default')
+local custom = S.normalizeOptions({ game = 'timing', params = { rounds = 5, cyclesPerSec = 0.2 } }, 'server')
+H.eq(S.estimateTimeout(custom), Config.Bounds.maxTimeoutMs, 'custom params budget at max')
+H.eq(S.estimateTimeout(S.normalizeOptions(S.toOptions(custom), 'server')), Config.Bounds.maxTimeoutMs, 'custom survives round trip')
+local samePreset = S.normalizeOptions(S.toOptions(S.normalizeOptions({ game = 'timing' }, 'server')), 'server')
+H.eq(S.estimateTimeout(samePreset), game.defaultTimeoutMs.normal, 'preset params after round trip are not custom')
+local cs = Config.Session
+local one = S.normalizeSequence({ feedbackMs = 1000, steps = { { game = 'timing', timeoutMs = 5000 } } }, 'server')
+H.eq(S.budgetMs(one), S.HANDSHAKE_MS + cs.practiceTimeoutMs + S.PRACTICE_GRACE_MS + 5000 + cs.hardGraceMs + 1000 + cs.stepGapMs, 'step budget counts practice, feedback and gap')
+local never = S.normalizeSequence({ practice = 'never', steps = { { game = 'timing', timeoutMs = 5000, onFail = 'retry', retries = 2 } } }, 'server')
+H.eq(S.budgetMs(never), 3 * (S.HANDSHAKE_MS + S.READY_MS + 5000 + cs.hardGraceMs + cs.defaultFeedbackMs + cs.stepGapMs), 'per attempt, no practice when never')
+H.eq(S.budgetMs(S.normalizeSequence({ deadlineMs = 4000, steps = { { game = 'timing' } } }, 'server')), 4000, 'caller deadline authoritative')
+local big = { steps = {} }
+for i = 1, 8 do big.steps[i] = { game = 'circuit_route', onFail = 'retry', retries = 3 } end
+H.eq(S.budgetMs(S.normalizeSequence(big, 'server')), Config.Bounds.maxSequenceDeadlineMs, 'budget capped')
+
+-- Sequence-level presentation is inherited by steps unless a step sets its own.
+seq = S.normalizeSequence({ presentation = { mode = 'focused', anchor = 'center', scale = 1.2 }, steps = { { game = 'timing' }, { game = 'timing', presentation = { mode = 'compact' } } } }, 'client')
+H.eq(seq.steps[1].presentation.mode, 'focused', 'step inherits mode')
+H.eq(seq.steps[1].presentation.anchor, 'center', 'step inherits anchor')
+H.eq(seq.steps[1].presentation.scale, 1.2, 'step inherits scale')
+H.eq(seq.steps[2].presentation.mode, 'compact', 'step overrides mode')
+H.eq(seq.steps[2].presentation.scale, 1.2, 'step keeps inherited scale')
+
+-- Shared sequence aggregation.
+local optional = S.normalizeSequence({ steps = { { game = 'timing', required = false, onFail = 'continue' }, { game = 'pressure', required = false, onFail = 'retry', retries = 1 } } }, 'client')
+H.eq(S.sequenceCanSucceed(optional, {}), false, 'nothing played cannot succeed')
+local failedOnly = { { status = 'failed', attempts = 1 }, { status = 'failed', attempts = 2 } }
+H.eq(S.sequenceCanSucceed(optional, failedOnly), false, 'all-optional with no pass cannot succeed')
+local agg = S.aggregateSequence('x', optional, { { status = 'success', score = 80, mistakes = 1, durationMs = 500, attempts = 1 }, { status = 'success', score = 91, mistakes = 0, durationMs = 700, attempts = 2 } }, 'success', 'completed')
+H.eq(agg.score, 86, 'mean score rounded'); H.eq(agg.mistakes, 1, 'mistakes summed'); H.eq(agg.durationMs, 1200, 'durations summed')
+H.eq(agg.metrics.retries, 1, 'retries from attempts'); H.eq(agg.grade, 'good', 'grade from score'); H.eq(agg.game, 'sequence', 'game sequence')
 
 H.done('schema_spec')

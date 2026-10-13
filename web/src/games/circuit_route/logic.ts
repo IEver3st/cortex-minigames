@@ -83,6 +83,32 @@ export function evaluate(cols: number, rows: number, tiles: Tile[], at = 0): Tes
   return { powered, lit, shorted: [...shorted], ok: lit.length === terminals.length && shorted.size === 0, at };
 }
 
+/** Terminal cells: the far three edges, clear of the source column. */
+function terminalEdge(cols: number, rows: number): number[] {
+  const edge: number[] = [];
+  for (let y = 0; y < rows; y++) edge.push(y * cols + cols - 1);
+  for (let x = 2; x < cols - 1; x++) { edge.push(x); edge.push((rows - 1) * cols + x); }
+  return edge;
+}
+
+/** Terminals are spread apart: more than two steps between any two, so never adjacent. */
+const spaced = (cols: number, a: number, b: number): boolean =>
+  Math.abs((a % cols) - (b % cols)) + Math.abs(Math.floor(a / cols) - Math.floor(b / cols)) > 2;
+
+/** Every placement of `count` spaced terminals on the edge (at most C(14, 3) sets, so enumerable). */
+export function terminalSets(cols: number, rows: number, count: number): number[][] {
+  const edge = terminalEdge(cols, rows);
+  const out: number[][] = [];
+  const pick = (from: number, chosen: number[]) => {
+    if (chosen.length === count) { out.push([...chosen]); return; }
+    for (let i = from; i < edge.length; i++) {
+      if (chosen.every((other) => spaced(cols, other, edge[i]))) pick(i + 1, [...chosen, edge[i]]);
+    }
+  };
+  pick(0, []);
+  return out;
+}
+
 function generate(p: CircuitParams, rng: Rng): Tile[] | null {
   const { cols, rows } = p;
   const count = cols * rows;
@@ -92,17 +118,18 @@ function generate(p: CircuitParams, rng: Rng): Tile[] | null {
   const sourceY = rng.int(0, rows - 1);
   const source = index(0, sourceY);
   // Terminals sit on the far three edges, spread apart, never adjacent to each other or the source column.
-  const edge: number[] = [];
-  for (let y = 0; y < rows; y++) edge.push(index(cols - 1, y));
-  for (let x = 2; x < cols - 1; x++) { edge.push(index(x, 0)); edge.push(index(x, rows - 1)); }
-  rng.shuffle(edge);
-  const terminals: number[] = [];
+  const edge = rng.shuffle(terminalEdge(cols, rows));
+  let terminals: number[] = [];
   for (const cell of edge) {
     if (terminals.length >= p.terminals) break;
-    const cx = cell % cols, cy = Math.floor(cell / cols);
-    if (terminals.every((other) => Math.abs((other % cols) - cx) + Math.abs(Math.floor(other / cols) - cy) > 2)) terminals.push(cell);
+    if (terminals.every((other) => spaced(cols, other, cell))) terminals.push(cell);
   }
-  if (terminals.length < p.terminals) return null;
+  // A greedy pass can paint itself into a corner on tight boards; then pick from every valid placement.
+  if (terminals.length < p.terminals) {
+    const sets = terminalSets(cols, rows, p.terminals);
+    if (!sets.length) return null;
+    terminals = rng.pick(sets);
+  }
 
   // Randomised DFS spanning tree over the grid; the solved wiring is the union of tree paths
   // from the source to each terminal. Terminals are leaves, so paths never pass through them.
@@ -229,7 +256,7 @@ export const circuitRoute = defineGame<CircuitParams, CircuitState>({
   minDurationMs: 1200,
   defaultTimeoutMs: (p) => Math.round(9000 + p.cols * p.rows * 900),
   check(p, timeoutMs) {
-    if (p.terminals > p.rows + 2 * Math.max(0, p.cols - 3)) return 'too_many_terminals';
+    if (!terminalSets(p.cols, p.rows, p.terminals).length) return 'too_many_terminals';
     if (timeoutMs < p.cols * p.rows * 300) return 'time_budget_too_short';
     return null;
   },

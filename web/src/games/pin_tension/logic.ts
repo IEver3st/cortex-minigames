@@ -87,7 +87,9 @@ export const pinTension = defineGame<PinParams, PinState>({
     { actions: ['primary'], label: 'Set' },
   ],
   tutorial: 'Hold tension in the band, find the pin that resists, lift it to peak resistance and set it. Slack tension drops pins.',
-  minDurationMs: 1500,
+  // Every pin starts at lift 0 with its sweet spot at least 0.25 up, and only the selected pin lifts:
+  // three pins at the fastest lift (1.2 per second) need at least 625 ms.
+  minDurationMs: 560,
   defaultTimeoutMs: (p) => Math.round(6000 + p.pins * 4500),
   check(p, timeoutMs) {
     if (p.liftSpeed * 0.035 > p.liftTolerance * 1.2) return 'tolerance_below_precision';
@@ -111,12 +113,15 @@ export const pinTension = defineGame<PinParams, PinState>({
     const tensionDir = (held.has('next') ? 1 : 0) - (held.has('prev') ? 1 : 0);
     s.tension = clamp(s.tension + tensionDir * s.p.tensionSpeed * seconds);
     const pin = s.pins[s.selected];
+    // Wheel notches lift no faster than the keys; spare notches carry over to the next step.
+    const max = s.p.liftSpeed * seconds;
+    const notches = clamp(s.wheel, -max, max);
+    s.wheel -= notches;
     if (!pin.set) {
       let lift = (held.has('up') ? 1 : 0) - (held.has('down') ? 1 : 0);
       if (lift === 0) lift = -input.axes.ly;
-      pin.lift = clamp(pin.lift + lift * s.p.liftSpeed * seconds + s.wheel);
-    }
-    s.wheel = 0;
+      pin.lift = clamp(pin.lift + lift * s.p.liftSpeed * seconds + notches);
+    } else s.wheel = 0;
 
     if (s.tension > s.hi) {
       s.stress += s.p.stressRate * seconds * (1 + (s.tension - s.hi) * 4);
@@ -142,12 +147,12 @@ export const pinTension = defineGame<PinParams, PinState>({
     }
   },
   press(s, action, t) {
-    if (action === 'left') s.selected = (s.selected + s.pins.length - 1) % s.pins.length;
-    else if (action === 'right') s.selected = (s.selected + 1) % s.pins.length;
+    if (action === 'left') select(s, (s.selected + s.pins.length - 1) % s.pins.length);
+    else if (action === 'right') select(s, (s.selected + 1) % s.pins.length);
     else if (action === 'primary') attemptSet(s, t);
   },
   pointer(s, event, t) {
-    if (event.kind === 'select' && event.index >= 0 && event.index < s.pins.length) s.selected = event.index;
+    if (event.kind === 'select' && event.index >= 0 && event.index < s.pins.length) select(s, event.index);
     else if (event.kind === 'select' && event.index === -1) attemptSet(s, t);
     else if (event.kind === 'wheel') s.wheel += event.dir * 0.02;
     else if (event.kind === 'set' && event.control === 0) s.tension = clamp(event.value);
@@ -169,6 +174,12 @@ export const pinTension = defineGame<PinParams, PinState>({
     };
   },
 });
+
+/** Changing pins discards wheel notches still queued for the previous one. */
+function select(s: PinState, index: number): void {
+  if (index !== s.selected) s.wheel = 0;
+  s.selected = index;
+}
 
 function attemptSet(s: PinState, t: number): void {
   const pin = s.pins[s.selected];

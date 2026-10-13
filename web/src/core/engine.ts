@@ -115,11 +115,14 @@ export class Engine<S = unknown> {
       for (const event of this.queue) event.at = Math.max(event.at - skipped, this.origin + this.simT);
     }
     const { def, state, input } = this;
-    while (this.simT + STEP_MS <= target) {
-      const stepEnd = this.simT + STEP_MS;
+    for (;;) {
+      // The last step is cut short at the deadline, so nothing a step produces can land after it.
+      const stepEnd = Math.min(this.simT + STEP_MS, this.timeoutMs);
+      if (stepEnd > target || stepEnd <= this.simT) break;
       if (this.drain(stepEnd)) return this.finished;
+      const dt = stepEnd - this.simT;
       this.simT = stepEnd;
-      def.step?.(state, STEP_MS, this.simT, input);
+      def.step?.(state, dt, this.simT, input);
       if (this.settle()) return this.finished;
     }
     // Inputs that happened after the last whole step are judged now, at their own timestamps.
@@ -146,7 +149,7 @@ export class Engine<S = unknown> {
 
   private settle(t = this.simT): boolean {
     const outcome = this.def.outcome(this.state, t);
-    if (outcome) {
+    if (outcome && Math.max(this.simT, t) <= this.timeoutMs) {
       this.finished = outcome;
       this.simT = Math.max(this.simT, t);
       this.queue.length = 0;

@@ -188,7 +188,8 @@ function IsNuiFocused() return H.focus.focused or H.foreignFocus == true end
 function IsPauseMenuActive() return false end
 function GetResourceKvpString(key) return H.kvp[key] end
 function SetResourceKvp(key, value) H.kvp[key] = value end
-function RegisterCommand() end
+H.commands = {}
+function RegisterCommand(name, fn) H.commands[name] = fn end
 function GetConvarInt() return 0 end
 function DisableAllControlActions() end
 function IsUsingKeyboard() return H.usingKeyboard ~= false end

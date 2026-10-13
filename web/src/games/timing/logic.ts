@@ -20,6 +20,11 @@ export type TimingParams = {
 /** Minimum time the indicator spends inside the window; below this, reaction precision decides, not skill. */
 export const MIN_WINDOW_MS = 70;
 export const TELEGRAPH_MS = 380;
+/** The marker never reaches a window sooner than this after its round starts, so even an
+ *  anticipated press cannot land under `minDurationMs`. */
+export const MIN_ENTRY_MS = 160;
+/** Each round's window centre is crossed within this many cycles of the round start, reversals included. */
+export const REACH_CYCLES = 1.5;
 
 type Round = {
   start: number; // sim ms the indicator starts moving
@@ -42,19 +47,57 @@ export type TimingState = {
 /** Track-lengths travelled per ms. Linear ping-pong covers the track twice per cycle. */
 const speed = (p: TimingParams) => (p.variant === 'linear' ? 2 : 1) * p.cyclesPerSec / 1000;
 
+/** Lowest and highest window start for a variant; the window keeps clear of the start position. */
+function windowRange(p: TimingParams): [number, number] {
+  const lo = Math.max(p.variant === 'linear' ? 0.22 : 0.18, MIN_ENTRY_MS * speed(p));
+  return [lo, (p.variant === 'linear' ? 0.94 : 0.86) - p.window];
+}
+
+/** Ms after the round start within which the window centre must be crossed. */
+export const reachMs = (p: TimingParams): number => (p.reversals ? (REACH_CYCLES / p.cyclesPerSec) * 1000 : 1 / speed(p));
+
+/** First sim ms at which the marker crosses the window centre, or Infinity if not before `until`. */
+function firstCrossing(round: Round, p: TimingParams, until: number): number {
+  const center = round.a + p.window / 2;
+  const v = speed(p);
+  // Sample at most a hundredth of the window apart so a crossing is never stepped over.
+  const dt = Math.max(0.5, Math.min(4, p.window / v / 100));
+  const offset = (t: number) => {
+    const d = markerAt(round, p, t) - center;
+    return p.variant === 'circular' ? d - Math.round(d) : d;
+  };
+  let prev = offset(round.start);
+  for (let t = round.start + dt; t <= until; t += dt) {
+    const next = offset(t);
+    if (prev === 0 || (Math.sign(next) !== Math.sign(prev) && Math.abs(next - prev) < 0.5)) return t;
+    prev = next;
+  }
+  return Infinity;
+}
+
 function makeRound(p: TimingParams, rng: Rng, start: number): Round {
   const w = p.window;
-  // Keep the window away from the start position so there is always visible travel before it.
-  const a = p.variant === 'linear' ? rng.range(0.22, 0.94 - w) : rng.range(0.18, 0.86 - w);
-  const flips: number[] = [];
-  if (p.reversals) {
+  // Keep the window away from the start position so there is always visible travel before it,
+  // and far enough along that the marker needs at least MIN_ENTRY_MS to reach it.
+  const [lo, hi] = windowRange(p);
+  const a = rng.range(lo, hi);
+  if (!p.reversals) return { start, a, flips: [], judged: null };
+  // Reversals are random, but each round must still carry the marker across the window centre
+  // within its reach budget. Bounded retries, then a verified fallback: no flip before the first
+  // pass, so the centre is crossed at (a + w/2) / speed exactly as without reversals.
+  const deadline = start + reachMs(p);
+  let flips: number[] = [];
+  for (let attempt = 0; attempt < 8; attempt++) {
+    flips = [];
     let t = start + rng.range(900, 1600);
     for (let i = 0; i < 12; i++) {
       flips.push(t);
       t += rng.range(900, 2200);
     }
+    if (firstCrossing({ start, a, flips, judged: null }, p, deadline) <= deadline) return { start, a, flips, judged: null };
   }
-  return { start, a, flips, judged: null };
+  const pass = start + (a + w) / speed(p) + TELEGRAPH_MS;
+  return { start, a, flips: flips.filter((flip) => flip > pass), judged: null };
 }
 
 /** Distance travelled (track lengths, signed by direction) since the round began. */
@@ -70,12 +113,15 @@ function travel(round: Round, p: TimingParams, t: number): number {
   return u + dir * v * (Math.max(t, round.start) - last);
 }
 
-export function position(s: TimingState, t: number, index = s.current): number {
-  const round = s.rounds[index];
-  const u = travel(round, s.p, t);
-  if (s.p.variant === 'circular') return ((u % 1) + 1) % 1;
+function markerAt(round: Round, p: TimingParams, t: number): number {
+  const u = travel(round, p, t);
+  if (p.variant === 'circular') return ((u % 1) + 1) % 1;
   const m = ((u % 2) + 2) % 2; // triangle wave: 0 → 1 → 0
   return m <= 1 ? m : 2 - m;
+}
+
+export function position(s: TimingState, t: number, index = s.current): number {
+  return markerAt(s.rounds[index], s.p, t);
 }
 
 /** Upcoming direction change within the telegraph lead, for the UI warning. */
@@ -118,9 +164,13 @@ export const timing = defineGame<TimingParams, TimingState>({
   tutorial: 'Stop the marker inside the lit window. The inner notch is a perfect stop.',
   minDurationMs: 120,
   defaultTimeoutMs: (p) => Math.round(2500 + p.rounds * (2 / p.cyclesPerSec) * 1000 + p.rounds * p.roundGapMs),
-  check(p) {
+  check(p, timeoutMs) {
     const windowMs = p.window / speed(p);
     if (windowMs < MIN_WINDOW_MS) return 'window_too_fast';
+    // A wide window on a fast marker cannot sit MIN_ENTRY_MS of travel away from the start.
+    const [lo, hi] = windowRange(p);
+    if (lo > hi) return 'window_too_early';
+    if (timeoutMs < p.rounds * (reachMs(p) + p.roundGapMs) + 500) return 'time_budget_too_short';
     return null;
   },
   create(p, rng) {

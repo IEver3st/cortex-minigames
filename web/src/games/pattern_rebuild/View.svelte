@@ -23,8 +23,12 @@
   });
 
   const blocks = (piece: Piece) => GLYPHS[piece.glyph];
+  // Tray piece being dragged. Any mouseup ends the drag (the window handler runs after the cell's),
+  // so a plain tray click never turns the next cell click into a second placement.
   let drag = -1;
 </script>
+
+<svelte:window onmouseup={() => (drag = -1)} />
 
 {#snippet glyph(piece: Piece)}
   <svg viewBox="0 0 30 30" class="glyph" aria-label="{piece.glyph} facing {piece.rotation * 90} degrees">
@@ -41,7 +45,7 @@
         {#each m.cells as cell, i (i)}
           <button type="button" class="cell" class:cursor={cell.cursor} class:correct={cell.correct} class:filled={!!cell.piece}
             onmousedown={(e) => { e.preventDefault(); session.pointer({ kind: 'cell', index: i, button: e.button === 2 ? 2 : 0 }, e); }}
-            onmouseup={(e) => { if (drag >= 0 && e.button === 0 && !cell.piece) session.pointer({ kind: 'cell', index: i, button: 0 }, e); drag = -1; }}
+            onmouseup={(e) => { if (drag >= 0 && e.button === 0 && !cell.piece) session.pointer({ kind: 'cell', index: i, button: 0 }, e); }}
             oncontextmenu={(e) => e.preventDefault()} aria-label="Cell {i + 1}">
             {#if cell.piece}{@render glyph(cell.piece)}{/if}
             {#if cell.correct}<span class="mark">✓</span>{/if}

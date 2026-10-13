@@ -15,9 +15,10 @@ local function invoker()
     return GetInvokingResource() or RESOURCE
 end
 
-local function rejected(options, problem)
-    local game = type(options) == 'table' and type(options.game) == 'string' and options.game:sub(1, 32) or 'unknown'
+local function rejected(options, problem, sequence)
+    local game = sequence and 'sequence' or (type(options) == 'table' and type(options.game) == 'string' and options.game:sub(1, 32)) or 'unknown'
     local result = Schema.makeResult(nil, game, 'rejected', problem.reason)
+    if sequence then result.steps = {} end
     result.error = { field = problem.field, message = problem.message } -- actionable detail for the developer
     return result
 end
@@ -26,7 +27,7 @@ local function start(owner, options, sequence, onDone)
     local spec, problem
     if sequence then spec, problem = Schema.normalizeSequence(options, 'client')
     else spec, problem = Schema.normalizeOptions(options, 'client') end
-    if not spec then return false, rejected(options, problem) end
+    if not spec then return false, rejected(options, problem, sequence) end
     return Session.begin(owner, spec, onDone)
 end
 
@@ -50,11 +51,11 @@ exports('PlaySequence', function(options) return play(options, true) end)
 --- `onComplete(result)` runs exactly once for accepted sessions.
 exports('Begin', function(options, onComplete)
     local owner = invoker()
+    local sequence = type(options) == 'table' and options.steps ~= nil
     local callable = type(onComplete) == 'function' or (type(onComplete) == 'table' and getmetatable(onComplete) and getmetatable(onComplete).__call)
     if not callable then
-        return { accepted = false, result = rejected(options, { reason = 'invalid_options', field = 'onComplete', message = 'onComplete must be a function' }) }
+        return { accepted = false, result = rejected(options, { reason = 'invalid_options', field = 'onComplete', message = 'onComplete must be a function' }, sequence) }
     end
-    local sequence = type(options) == 'table' and options.steps ~= nil
     local ok, value = start(owner, options, sequence, function(result) onComplete(result) end)
     if not ok then return { accepted = false, result = value } end
     return { accepted = true, sessionId = value.id }

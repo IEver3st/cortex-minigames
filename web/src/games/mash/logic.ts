@@ -26,10 +26,23 @@ export type MashState = {
   firstAt: number;
 };
 
+/** Taps per second most players can sustain for several seconds on one key. Presets, the
+ *  reachability check and the default budget are calibrated against this, never against `maxRate`,
+ *  which is only the anti-macro cap. */
+export const HUMAN_TAP_RATE = 7;
+/** A strong player's sustained rate; finishing as fast as this earns full marks. */
+export const STRONG_TAP_RATE = 10;
+
 /** Taps per second a player must sustain just to hold the meter level. */
 export const breakEvenRate = (p: MashParams): number => p.decay / p.gain;
-/** Net fill per second at a sustainable human rate (75% of the cap). */
-const comfortableNet = (p: MashParams): number => 0.75 * p.maxRate * p.gain - p.decay;
+/** Net fill per second at `rate` taps per second, never above the cap. */
+const netFill = (p: MashParams, rate: number): number => Math.min(rate, p.maxRate) * p.gain - p.decay;
+/** Ms to fill the meter at `rate` taps per second (continuous estimate, slightly generous). */
+export const fillMs = (p: MashParams, rate: number): number => 1000 / Math.max(1e-6, netFill(p, rate));
+
+/** The key a game instance asks for; the hint follows the configured action. */
+const hintFor = (action: Action) => [{ actions: [action], label: 'Tap fast' }];
+let shownHints = hintFor('primary');
 
 export const mash = defineGame<MashParams, MashState>({
   id: 'mash',
@@ -44,22 +57,28 @@ export const mash = defineGame<MashParams, MashState>({
     maxRate: { type: 'int', min: 6, max: 20 },
   },
   presets: {
-    easy: { action: 'primary', gain: 0.12, decay: 0.25, maxRate: 14 },
-    normal: { action: 'primary', gain: 0.09, decay: 0.35, maxRate: 16 },
-    hard: { action: 'primary', gain: 0.07, decay: 0.45, maxRate: 18 },
-    expert: { action: 'primary', gain: 0.055, decay: 0.55, maxRate: 20 },
+    // Break-even rates 2 / 3 / 4 / 4.8 taps per second; a 7 taps/s player fills them in about
+    // 2 / 2.5 / 3.7 / 4.5 s.
+    easy: { action: 'primary', gain: 0.1, decay: 0.2, maxRate: 14 },
+    normal: { action: 'primary', gain: 0.1, decay: 0.3, maxRate: 16 },
+    hard: { action: 'primary', gain: 0.09, decay: 0.36, maxRate: 18 },
+    expert: { action: 'primary', gain: 0.1, decay: 0.48, maxRate: 20 },
   },
   metrics: { taps: 'number', ignored: 'number', peak: 'number', rate: 'number' },
-  hints: [{ actions: ['primary'], label: 'Tap fast' }],
+  // Footer hints follow the action of the instance most recently created (one session at a time).
+  get hints() { return shownHints; },
   tutorial: 'Tap the key as fast as you can to fill the meter before it drains.',
-  minDurationMs: 150,
-  defaultTimeoutMs: (p) => Math.round(3000 + (2500 / Math.max(0.05, comfortableNet(p)))),
+  // Fastest legitimate fill: four taps at the widest cap (gain 0.3, 20 taps/s) is 150 ms after the first.
+  minDurationMs: 120,
+  defaultTimeoutMs: (p) => Math.round(3000 + 2.5 * fillMs(p, HUMAN_TAP_RATE)),
   check(p, timeoutMs) {
-    if (breakEvenRate(p) > p.maxRate * 0.7) return 'mash_rate_unreachable';
-    if (timeoutMs < 1000 / comfortableNet(p) * 1.3 + 500) return 'time_budget_too_short';
+    const breakEven = breakEvenRate(p);
+    if (breakEven > HUMAN_TAP_RATE * 0.7 || breakEven > p.maxRate * 0.7) return 'mash_rate_unreachable';
+    if (timeoutMs < fillMs(p, HUMAN_TAP_RATE) * 1.3 + 500) return 'time_budget_too_short';
     return null;
   },
   create(p) {
+    shownHints = hintFor(p.action);
     return { p, fill: 0, peak: 0, taps: 0, ignored: 0, lastTap: -Infinity, lastAt: -Infinity, firstAt: -1 };
   },
   step(s, dt) {
@@ -81,10 +100,17 @@ export const mash = defineGame<MashParams, MashState>({
   report(s, outcome, t, timeoutMs) {
     const active = Math.max(1, t - Math.max(0, s.firstAt));
     return {
-      // Speed relative to the budget; a failed attempt scores how close it got.
-      score: outcome?.status === 'success' ? toScore(0.4 + 0.6 * (1 - clamp(t / timeoutMs))) : toScore(s.peak * 0.5),
+      // Full marks at a strong player's pace, falling to 40% at the budget; a failed attempt scores
+      // how close it got.
+      score: outcome?.status === 'success' ? toScore(0.4 + 0.6 * speedShare(s.p, t, timeoutMs)) : toScore(s.peak * 0.5),
       mistakes: 0,
       metrics: { taps: s.taps, ignored: s.ignored, peak: s.peak, rate: s.taps ? (s.taps / active) * 1000 : 0 },
     };
   },
 });
+
+/** 1 at or under the strong-player fill time, 0 at the budget. */
+function speedShare(p: MashParams, t: number, timeoutMs: number): number {
+  const target = Math.min(fillMs(p, STRONG_TAP_RATE), timeoutMs * 0.5);
+  return clamp((timeoutMs - t) / Math.max(1, timeoutMs - target));
+}

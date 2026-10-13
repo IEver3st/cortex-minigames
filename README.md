@@ -1,8 +1,8 @@
-# cortex-minigames
+# Cortex Minigames
 
-Skill checks, QTEs and twelve distinct minigames for Cortex resources, behind one small API. A calling
-resource starts an interaction, the player sees a readable Cortex surface, and the caller gets one
-predictable result back. The caller never copies UI, timing logic or focus handling.
+Free public release **1.0.0**. Twelve minigames, composable QTEs and server-issued attempts for FiveM
+resources. The package includes readable Lua, a compiled Svelte UI, configuration, locales and a
+copyable integration demo. The resource folder must remain named `cortex-minigames`.
 
 Results describe what happened. They never authorize a reward on their own.
 
@@ -16,24 +16,37 @@ Results describe what happened. They never authorize a reward on their own.
   to the owning server resource. Security model: [docs/security.md](docs/security.md).
 - Keyboard, mouse and controller. Presets `easy`, `normal`, `hard`, `expert`. Seeded generation.
 
+## Requirements
+
+- FXServer with Lua 5.4. Enable OneSync for the demo's server-side player and distance checks.
+- No required framework, database or `cortex-lib` dependency. The demo's optional reward example
+  uses Qbox only when `qbx_core` is running and rewards are explicitly enabled.
+- Optional `cortex-lib` adds Cortex Settings preferences. The shared accent uses its readable
+  presentation adapter, checked offline against the `cortex-lib` 3.2.0 package. Missing or incompatible
+  adapters leave the local mint theme available; `/mgprefs` remains available without the library.
+- The download contains the production UI. Installing the release does not require Bun or Node.js.
+
 ## Install
 
-1. Copy `cortex-minigames` into your resources. The packaged build already contains `web/dist`.
-   For a source checkout, build it first: `cd web && bun install --frozen-lockfile && bun run build`.
+1. Download the latest `cortex-minigames-<version>.zip` from
+   [GitHub Releases](https://github.com/IEver3st/cortex-minigames/releases/latest). Extract its
+   `cortex-minigames` folder into your server's resources. Keep that folder name. This free package
+   uses plaintext Lua and includes `web/dist/index.html`; no Asset Escrow download is needed.
 2. In `server.cfg`, start it before anything that calls it:
 
    ```cfg
-   ensure cortex-lib          # optional; adds a Minigames tab to Cortex Settings
+   ensure cortex-lib          # optional; adds settings and the shared Cortex accent
    ensure cortex-minigames
    ensure your-resource
    ```
 
-3. Your resource declares `dependency 'cortex-minigames'`. To get a result even when this resource
-   is missing or stops mid-game, also load the caller helper (see [Watchdog](#watchdog)).
+3. Declare `dependency 'cortex-minigames'` in each calling resource's manifest and load the caller
+   helper for local calls that must return when the provider stops (see [Watchdog](#watchdog)).
+   Configure operator bounds in `config.lua`; no SQL installation is required.
 
-Requirements: FXServer with OneSync (for the server attempt service's `GetPlayerPed`/buckets),
-Lua 5.4. No database, no framework. Qbox is only used by the optional demo. `cortex-lib` 2.2.x is
-supported but not required at startup.
+For an optional smoke test, copy `examples/cortex-minigames-demo` into resources as a separate
+folder and `ensure cortex-minigames-demo`. Release notes and the native acceptance steps are in
+[docs/release.md](docs/release.md).
 
 ## Quick start
 
@@ -170,6 +183,13 @@ end)
 and an expiry. `onComplete` runs once, only in the owning resource. See
 [docs/security.md](docs/security.md) for exactly what is and is not proven.
 
+Before issuing an attempt, validate permissions, cooldowns, target state and proximity on your
+server. In `onComplete`, require `result.status == 'success'`, recheck mutable state, then commit
+once using `info.attemptId`. Never accept a client event or local minigame result as reward authority.
+The provider checks both reported duration and its own clock against the catalog's coarse success
+minimums; sequences must cover the successful steps' combined minimum. These bounds cannot prove
+that a human played the challenge. Callers must still own inventory, money and world changes.
+
 ## Watchdog
 
 If `cortex-minigames` stops while `Play` is waiting, its runtime is gone and cannot resume you.
@@ -203,39 +223,42 @@ runs, or with `/mgprefs` otherwise (`/mgprefs volume 0.4`, `mute on`, `motion re
 `scale 1.2`, `key primary KeyG`, `reset`). Preferences are client KVP, versioned and bounded.
 Practice history is remembered per game.
 
+With a compatible `cortex-lib`, the UI follows the shared accent, including Preview, Apply and
+Discard in Cortex Settings. Stopping the library restores the local theme; starting it again
+reconnects the adapter. Restart `cortex-minigames` after upgrading the library's adapter files.
+
 ## Configuration
 
 `config.lua` holds operator bounds (`Config.Bounds`: timeout range, feedback cap, sequence size,
 retry cap, optional game allowlist), session timing, the controller mapping, logout events, server
 attempt caps and rate limits. Logs are off unless `Config.Debug = true`; errors always print, rate
-limited.
+limited. `set cortex_minigames_version_check 0` in server.cfg skips the startup update check.
 
-## Development
+## Development commands
 
-```powershell
-cd web; bun install --frozen-lockfile; bun run dev   # playground at http://localhost:5173
-.\scripts\check.ps1                                    # Lua syntax + specs, UI tests, type check, build
-.\scripts\package.ps1                                  # distributable zip + sha256 under artifacts/
-```
-
-The playground runs the production session, engine and views with a mocked Lua bridge: pick a game,
-preset and parameters (invalid configurations show their error before launch), fix a seed, switch
-scale, motion, audio and scene, simulate caller cancel, death, hard deadline, resource restart,
-dropped `ready` and rejected reports, run the example compositions, and copy the equivalent Lua call.
-
-In game, `setr cortex_minigames_dev 1` enables `/minigame <game> [preset]` (client) and
+`setr cortex_minigames_dev 1` enables `/minigame <game> [preset]` (client) and
 `minigame_attempt <playerId> <game> [preset]` (server console or the `cortex-minigames.dev` ace).
 Leave the convar unset in production.
 
-Contributor guide (adding a game without touching the runtime): [docs/contributing.md](docs/contributing.md).
-Design brief and review: [DESIGN.md](DESIGN.md). User-run acceptance: [docs/runtime-validation.md](docs/runtime-validation.md).
+## Updating
+
+On start the server console reports `Update available: <version>` with the download link when a
+newer release is published, or `Version <x> is up to date`. It makes one request to the GitHub API
+per start and never downloads or changes files; `set cortex_minigames_version_check 0` turns it
+off.
+
+To update, back up your `config.lua` and custom locales,
+read the new [CHANGELOG](CHANGELOG.md), and replace the resource folder with the new download.
+Compare your saved configuration with the new defaults before restoring it. Restart the server, or
+restart `cortex-lib` if updated, then `cortex-minigames`, then every calling resource. Run `refresh`
+first if a resource manifest changed.
 
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 | --- | --- |
-| Result `rejected / invalid_params` with `error.message = time_budget_too_short` or `window_too_fast` | The UI's contradiction check refused the configuration. Raise `timeoutMs`, widen the window or lower the speed. The playground shows the same check live. |
-| `error / ui_startup_timeout` | The NUI never answered. Check that `web/dist` exists (build it) and the F8 console for CEF errors. |
+| Result `rejected / invalid_params` with `error.message = time_budget_too_short` or `window_too_fast` | The UI's contradiction check refused the configuration. Raise `timeoutMs`, widen the window or lower the speed. |
+| `error / ui_startup_timeout` | The NUI never answered. Check that `web/dist/index.html` exists (re-download if not) and the F8 console for CEF errors. |
 | `rejected / focus_unavailable` | Another NUI had focus (menu, phone, cortex-lib settings) or the pause menu was open. Start after it closes. |
 | `timeout / hard_deadline` | The UI stopped reporting (render stall, CEF hitch). The Lua deadline always ends the attempt. |
 | Controller does nothing | The pad mapping lives in `Config.Pad`. Verify the control ids for your pad and report them. |
@@ -249,7 +272,20 @@ Design brief and review: [DESIGN.md](DESIGN.md). User-run acceptance: [docs/runt
 - Built and type-checked with Svelte 5.57, Vite 8.3, TypeScript 6, Bun 1.3. Target `chrome100`.
 - Lua 5.4 (`lua54 'yes'`, matching the cortex-lib consumer contract).
 
+## Support
+
+Get help in the [GSD Modifications Discord](https://discord.gg/Atwt5nxaCV).
+Include your server artifact version, the `GetVersion()` result, game and preset, calling resource,
+reproduction steps, and relevant server/F8 errors. For controller or display issues, include the
+input device, resolution and UI scale. Do not post credentials or private player data.
+
+Native CEF, controller input, focus and restarts, multiplayer isolation and performance still need
+server-owner acceptance. Follow the three checks in [docs/release.md](docs/release.md); offline
+tests and browser captures do not establish those results.
+
 ## Licence
 
-Proprietary, see [LICENSE](LICENSE). Barlow Condensed is under the SIL Open Font License
+Free to run and modify on servers you own or administer under a proprietary licence. Redistribution
+and resale are prohibited. See [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md).
+Barlow Condensed is under the SIL Open Font License
 ([licenses/barlow-condensed-OFL.txt](licenses/barlow-condensed-OFL.txt)).

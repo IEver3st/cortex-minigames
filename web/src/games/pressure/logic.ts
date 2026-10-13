@@ -38,6 +38,23 @@ export type PressureState = {
 /** Pressure at or above this is overpressure: it counts as outside and stresses twice as fast. */
 export const OVERPRESSURE = 0.97;
 
+/** Band centre bounds: `base` is drawn from this range, then the band travels ±bandMotion around it. */
+const BASE_MIN = 0.45, BASE_MAX = 0.58;
+
+/** Ms of flat-out input, from rest at zero, until pressure reaches the highest point the band's lower
+ *  edge can sit at. Every band position is reachable by then; Infinity if it never gets there. */
+export function climbMs(p: PressureParams): number {
+  const target = BASE_MAX + p.bandMotion - p.bandWidth / 2;
+  const dt = 1 / 120;
+  let pressure = 0, velocity = 0;
+  for (let t = 0; t < 60; t += dt) {
+    velocity += (p.rise - p.decay - p.damping * velocity) * dt;
+    pressure += velocity * dt;
+    if (pressure >= target) return Math.ceil((t + dt) * 1000);
+  }
+  return Infinity;
+}
+
 export function bandCenter(s: PressureState, t: number): number {
   return s.base + s.p.bandMotion * Math.sin((2 * Math.PI * t) / s.p.bandPeriodMs + s.phase);
 }
@@ -69,7 +86,7 @@ export const pressure = defineGame<PressureParams, PressureState>({
   hints: [{ actions: ['primary'], label: 'Hold to build pressure' }],
   tutorial: 'Hold to raise pressure, release to let it fall. Keep the needle inside the band to fill the work meter.',
   minDurationMs: 1500,
-  defaultTimeoutMs: (p) => Math.round(p.workMs * 2 + 3000),
+  defaultTimeoutMs: (p) => Math.round(p.workMs * 2 + 3000 + Math.min(climbMs(p), 30000)),
   check(p, timeoutMs) {
     if (p.bandWidth / 2 + p.bandMotion > 0.42) return 'band_out_of_range';
     const climb = (p.rise - p.decay) / p.damping; // terminal upward speed at full input
@@ -77,13 +94,14 @@ export const pressure = defineGame<PressureParams, PressureState>({
     if (climb <= 0.05) return 'cannot_build_pressure';
     const bandSpeed = (p.bandMotion * 2 * Math.PI) / (p.bandPeriodMs / 1000);
     if (bandSpeed > Math.min(climb, fall) * 0.8) return 'band_too_fast';
-    if (timeoutMs < p.workMs + 2000) return 'time_budget_too_short';
+    // The climb into the band is unpaid time: the budget must cover it plus the work itself.
+    if (timeoutMs < climbMs(p) + p.workMs + 2000) return 'time_budget_too_short';
     return null;
   },
   create(p, rng) {
     return {
       p, pressure: 0, velocity: 0,
-      base: rng.range(0.45, 0.58),
+      base: rng.range(BASE_MIN, BASE_MAX),
       phase: rng.range(0, Math.PI * 2),
       progress: 0, stress: 0, maxStress: 0, outsideFor: 0, entered: false, enteredAt: 0, inBand: 0,
       excursions: 0, inside: false, over: false,

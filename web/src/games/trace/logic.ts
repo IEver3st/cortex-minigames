@@ -34,6 +34,9 @@ export type TraceSweepState = {
   backtrack: number; // total backward knob travel, radians
   eases: number;
   easing: boolean;
+  bank: number; // forward turn available right now, radians (see MAX_TURN_RATE)
+  bankAt: number;
+  keyed: boolean; // keys or the stick drew at least once: scored against the key pace
 };
 
 /** Knob radius in CSS px at sensitivity 1. A physical mouse maps counts to pixels 1:1 (CEF DPR 1),
@@ -49,6 +52,14 @@ export const IDLE_MS = 1500;
 export const EASE_PER_SECOND = 0.35;
 export const GAP_MS = 350;
 const MAX_CHUNKS = 64;
+/** The knob turns forward at most this fast (radians per second: four half turns), however fast the
+ *  pointer flicks, so no sweep completes in under ~200 ms at any sensitivity. */
+export const MAX_TURN_RATE = 4 * Math.PI;
+/** Forward turn the knob may bank while still, so the opening of a flick is not clipped. */
+export const MAX_BANK = 0.15 * Math.PI;
+/** Time per sweep that earns full speed marks: a brisk mouse sweep, or keys/stick at KEY_SPEED. */
+export const MOUSE_TARGET_MS = 700;
+export const KEY_TARGET_MS = 1600;
 
 const radius = (p: TraceSweepParams) => RADIUS_PX / p.sensitivity;
 export const progress = (s: TraceSweepState): number => s.angle / Math.PI;
@@ -71,6 +82,8 @@ export function turn(s: TraceSweepState, dx: number, dy: number, t: number): voi
   if (distance < 1e-6) return;
   s.lastMotion = t;
   s.easing = false;
+  s.bank = Math.min(MAX_BANK, s.bank + (Math.max(0, t - s.bankAt) / 1000) * MAX_TURN_RATE);
+  s.bankAt = t;
   const r = radius(s.p);
   s.travel += distance / r;
   const chunks = Math.min(MAX_CHUNKS, Math.max(1, Math.ceil(distance / (r * 0.25))));
@@ -84,8 +97,9 @@ export function turn(s: TraceSweepState, dx: number, dy: number, t: number): voi
     if (delta > Math.PI) delta -= 2 * Math.PI;
     else if (delta < -Math.PI) delta += 2 * Math.PI;
     const floor = Math.max(0, s.peak - s.p.tolerance * Math.PI);
-    const next = Math.min(Math.PI, Math.max(floor, s.angle + delta));
+    const next = Math.min(Math.PI, s.angle + s.bank, Math.max(floor, s.angle + delta));
     if (next < s.angle) s.backtrack += s.angle - next;
+    else s.bank -= next - s.angle;
     s.angle = next;
     s.peak = Math.max(s.peak, s.angle);
   }
@@ -129,6 +143,7 @@ export const traceSweep = defineGame<TraceSweepParams, TraceSweepState>({
   metrics: { sweeps: 'number', travel: 'number', backtrack: 'number', eases: 'number' },
   hints: [{ actions: ['up', 'down', 'left', 'right'], label: 'Sweep' }],
   tutorial: 'Sweep the mouse once along the arc, from the knob to the far end. Keys or the stick work too.',
+  // One sweep needs (COMPLETE - MAX_BANK) of a half turn at MAX_TURN_RATE: about 200 ms.
   minDurationMs: 150,
   defaultTimeoutMs: (p) => Math.round(4000 + p.sweeps * 3000),
   check(p, timeoutMs) {
@@ -140,11 +155,15 @@ export const traceSweep = defineGame<TraceSweepParams, TraceSweepState>({
     for (let i = 0; i < p.sweeps; i++) {
       directions.push(p.direction === 'random' ? (rng.next() < 0.5 ? 'upper' : 'lower') : p.direction);
     }
-    return { p, directions, round: 0, angle: 0, peak: 0, lastMotion: 0, lastStep: 0, openAt: 0, travel: 0, backtrack: 0, eases: 0, easing: false };
+    return {
+      p, directions, round: 0, angle: 0, peak: 0, lastMotion: 0, lastStep: 0, openAt: 0, travel: 0, backtrack: 0, eases: 0,
+      easing: false, bank: MAX_BANK, bankAt: 0, keyed: false,
+    };
   },
   step(s, dt, t, input) {
     const [vx, vy] = drawVector(input);
     if (vx !== 0 || vy !== 0) {
+      if (t >= s.openAt) s.keyed = true;
       const d = (KEY_SPEED * radius(s.p) * dt) / 1000;
       turn(s, vx * d, vy * d, t);
     }
@@ -160,8 +179,11 @@ export const traceSweep = defineGame<TraceSweepParams, TraceSweepState>({
   },
   report(s, outcome, t, timeoutMs) {
     const done = s.round + (outcome?.status === 'success' ? 0 : progress(s));
+    // Speed is judged against a fair pace for the input used: keys and the stick cannot match a flick.
+    const target = Math.min(timeoutMs * 0.5, s.p.sweeps * (s.keyed ? KEY_TARGET_MS : MOUSE_TARGET_MS) + (s.p.sweeps - 1) * GAP_MS);
+    const speed = clamp((timeoutMs - t) / Math.max(1, timeoutMs - target));
     return {
-      score: toScore((done / s.p.sweeps) * (0.75 * (1 - clamp(t / timeoutMs)) + 0.25 * (1 - clamp(s.backtrack / Math.PI)))),
+      score: toScore((done / s.p.sweeps) * (0.75 * speed + 0.25 * (1 - clamp(s.backtrack / Math.PI)))),
       mistakes: 0,
       metrics: { sweeps: s.round, travel: s.travel, backtrack: s.backtrack, eases: s.eases },
     };

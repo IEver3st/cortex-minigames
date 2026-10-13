@@ -1,6 +1,7 @@
 // NUI protocol v1. Lua → UI messages are parsed defensively; anything malformed, from another
 // protocol version, or from an older resource generation is dropped before it reaches a game.
 
+import { isBindableCode, RESERVED_CODES } from './input';
 import { ACTIONS, PROTOCOL, type Action, type Presentation } from './types';
 
 export interface Prefs {
@@ -12,6 +13,9 @@ export interface Prefs {
 }
 
 export const DEFAULT_PREFS: Prefs = { volume: 0.5, muted: false, motion: 'auto', scale: 1, keys: {} };
+
+/** Play timeout cap in ms, inclusive at both ends. config.lua's Config.Bounds clamps to the same range. */
+export const TIMEOUT_BOUNDS = { min: 1000, max: 180000 } as const;
 
 export interface OpenSpec {
   game: string;
@@ -39,8 +43,7 @@ export type InboundMessage =
   | { type: 'input'; gen: number; sid: string; kind: 'press' | 'release'; action: Action }
   | { type: 'axes'; gen: number; sid: string; lx: number; ly: number; rt: number }
   | { type: 'close'; gen: number; sid: string; status: string; reason: string; feedbackMs: number }
-  | { type: 'prefs'; gen: number; prefs: Prefs }
-  | { type: 'reset'; gen: number };
+  | { type: 'prefs'; gen: number; prefs: Prefs };
 
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const isStr = (value: unknown, max = 128): value is string => typeof value === 'string' && value.length > 0 && value.length <= max;
@@ -52,7 +55,8 @@ export function parsePrefs(value: unknown): Prefs {
   const keys: Partial<Record<Action, string>> = {};
   if (isObject(value.keys)) {
     for (const [action, code] of Object.entries(value.keys)) {
-      if ((ACTIONS as readonly string[]).includes(action) && action !== 'cancel' && isStr(code, 32) && /^[A-Za-z0-9]+$/.test(code)) keys[action as Action] = code;
+      // Only real KeyboardEvent.code values; cancel and the reserved fallbacks never move.
+      if ((ACTIONS as readonly string[]).includes(action) && action !== 'cancel' && isBindableCode(code) && !RESERVED_CODES.has(code)) keys[action as Action] = code;
     }
   }
   return {
@@ -89,8 +93,8 @@ function parseSpec(value: unknown): OpenSpec | null {
     params: value.params,
     seed: Math.trunc(value.seed),
     timeoutMs: isNum(value.timeoutMs) ? Math.trunc(value.timeoutMs) : undefined,
-    minTimeoutMs: bounded(value.minTimeoutMs, 1000, 180000, 1000),
-    maxTimeoutMs: bounded(value.maxTimeoutMs, 1000, 180000, 180000),
+    minTimeoutMs: bounded(value.minTimeoutMs, TIMEOUT_BOUNDS.min, TIMEOUT_BOUNDS.max, TIMEOUT_BOUNDS.min),
+    maxTimeoutMs: bounded(value.maxTimeoutMs, TIMEOUT_BOUNDS.min, TIMEOUT_BOUNDS.max, TIMEOUT_BOUNDS.max),
     title: typeof value.title === 'string' ? value.title.slice(0, 64) : '',
     instruction: typeof value.instruction === 'string' ? value.instruction.slice(0, 140) : '',
     presentation: {
@@ -115,8 +119,6 @@ export function parseMessage(data: unknown): InboundMessage | null {
       return { type: 'boot', gen, prefs: parsePrefs(data.prefs), strings: parseStrings(data.strings) };
     case 'prefs':
       return { type: 'prefs', gen, prefs: parsePrefs(data.prefs) };
-    case 'reset':
-      return { type: 'reset', gen };
     case 'open': {
       const spec = parseSpec(data.spec);
       return isStr(sid, 40) && spec ? { type: 'open', gen, sid, spec } : null;

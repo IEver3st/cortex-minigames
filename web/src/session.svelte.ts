@@ -10,10 +10,21 @@ import { prepare } from './core/prepare';
 import { DEFAULT_PREFS, parseMessage, type InboundMessage, type OpenSpec, type Prefs } from './core/protocol';
 import { cleanMetrics, gradeFor } from './core/result';
 import { setStrings } from './shell/labels';
-import type { Action, Device, PointerEvt, Status } from './core/types';
+import { REASONS, type Action, type Device, type PointerEvt, type Status } from './core/types';
 
 export type Phase = 'idle' | 'preparing' | 'waiting' | 'practice' | 'cue' | 'playing' | 'feedback';
 export const CUE_MS = 650;
+/** Delays between `boot` attempts until Lua answers; the last one repeats. */
+export const BOOT_RETRY_MS = [500, 1000, 2000, 5000] as const;
+/** How long a rejected `ready` waits for Lua's close, which may arrive after the reply. */
+export const CLOSE_GRACE_MS = 250;
+/** Fault messages are a short diagnostic for the Lua log, never a stack. */
+export const FAULT_MESSAGE_MAX = 120;
+
+const describe = (error: unknown): string => {
+  const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return text.replace(/\s+/g, ' ').trim().slice(0, FAULT_MESSAGE_MAX) || 'unknown';
+};
 
 export interface Feedback {
   status: Status;
@@ -44,6 +55,13 @@ class Session {
 
   private frame = 0;
   private timers = new Set<number>();
+  private feedbackTimer = 0;
+  private booted = false;
+  private booting = false;
+  private bootAttempts = 0;
+  private bootTimer = 0;
+  /** Cumulative paused ms last reported through `stall` for the current run. */
+  private stallSent = 0;
   private practiceArmed = false;
   private practiced = false;
   private reported = false;
@@ -57,6 +75,8 @@ class Session {
     if (message.type === 'boot') {
       if (this.sid && message.gen !== this.gen) this.teardown();
       this.gen = message.gen;
+      this.booted = true;
+      this.stopBoot();
       setStrings(message.strings);
       this.applyPrefs(message.prefs);
       return;
@@ -70,9 +90,6 @@ class Session {
     switch (message.type) {
       case 'prefs':
         this.applyPrefs(message.prefs);
-        break;
-      case 'reset':
-        this.teardown();
         break;
       case 'open':
         void this.open(message.sid, message.spec);
@@ -101,12 +118,32 @@ class Session {
   applyPrefs(prefs: Prefs): void {
     this.prefs = prefs;
     this.keymap = buildKeymap(prefs.keys);
-    configureAudio(prefs);
+    configureAudio(this.audio());
   }
 
+  /** Player prefs capped by the caller: muted if either side mutes, the quieter volume wins. */
+  private audio(): { volume: number; muted: boolean } {
+    const caller = this.spec?.audio;
+    if (!caller) return { volume: this.prefs.volume, muted: this.prefs.muted };
+    return { volume: Math.min(caller.volume, this.prefs.volume), muted: caller.muted || this.prefs.muted };
+  }
+
+  /** Ask Lua for the generation, retrying with backoff: without it every message is dropped as stale. */
   async boot(): Promise<void> {
+    if (this.booted || this.booting) return;
+    this.stopBoot();
+    this.booting = true;
     const reply = await call('boot', 0);
+    this.booting = false;
     if (reply.ok && reply.data) this.receive({ protocol: 1, type: 'boot', gen: reply.data.gen, prefs: reply.data.prefs, strings: reply.data.strings });
+    if (this.booted) return;
+    const delay = BOOT_RETRY_MS[Math.min(this.bootAttempts++, BOOT_RETRY_MS.length - 1)];
+    this.bootTimer = window.setTimeout(() => { this.bootTimer = 0; void this.boot(); }, delay);
+  }
+
+  stopBoot(): void {
+    if (this.bootTimer) window.clearTimeout(this.bootTimer);
+    this.bootTimer = 0;
   }
 
   // --- lifecycle -----------------------------------------------------------------------------
@@ -115,12 +152,21 @@ class Session {
     if (this.sid) this.teardown();
     // Without a caller timeout, use the game default within the operator's bounds.
     let timeoutMs = spec.timeoutMs;
-    if (timeoutMs === undefined) {
-      const probe = prepare({ ...spec, timeoutMs: undefined });
-      const base = probe.ok ? probe.value.timeoutMs : spec.maxTimeoutMs;
-      timeoutMs = Math.min(spec.maxTimeoutMs, Math.max(spec.minTimeoutMs, base));
+    let prepared: ReturnType<typeof prepare>;
+    try {
+      if (timeoutMs === undefined) {
+        const probe = prepare({ ...spec, timeoutMs: undefined });
+        const base = probe.ok ? probe.value.timeoutMs : spec.maxTimeoutMs;
+        timeoutMs = Math.min(spec.maxTimeoutMs, Math.max(spec.minTimeoutMs, base));
+      }
+      prepared = prepare({ ...spec, timeoutMs });
+    } catch (error) {
+      // A game bug, not a bad config: show the error state and let Lua end the run.
+      this.sid = sid;
+      this.spec = { ...spec, timeoutMs };
+      this.fault(sid, error);
+      return;
     }
-    const prepared = prepare({ ...spec, timeoutMs });
     if (!prepared.ok) {
       await call('ready', this.gen, { sid, ok: false, reason: prepared.error.reason, field: prepared.error.field ?? '', message: prepared.error.message });
       return;
@@ -140,12 +186,17 @@ class Session {
     this.mistakes = 0;
     this.feedback = null;
     this.practiced = false;
-    configureAudio({ volume: Math.min(spec.audio.volume, this.prefs.volume), muted: spec.audio.muted || this.prefs.muted });
+    this.stallSent = 0;
+    configureAudio(this.audio());
     this.view = { s: engine.state, t: 0, n: 0 };
     // Waiting before the reply resolves: Lua may send `start` before fetch() hands back the ack.
     this.phase = 'waiting';
     const reply = await call('ready', this.gen, { sid, ok: true, timeoutMs });
-    if (this.sid === sid && !reply.ok) this.teardown();
+    // Rejected while Lua's close is showing: keep it for its feedbackMs, the feedback timer tears down.
+    if (reply.ok || this.sid !== sid || (this.phase as Phase) === 'feedback') return;
+    if (reply.error === 'stale') { this.teardown(); return; }
+    // Lua sends close before it replies, but NUI messages and replies can arrive in either order.
+    this.later(() => { if (this.sid === sid && this.phase !== 'feedback') this.teardown(); }, CLOSE_GRACE_MS);
   }
 
   private begin(): void {
@@ -171,17 +222,29 @@ class Session {
   }
 
   private loop = (): void => {
-    const engine = this.engine;
-    if (!engine || this.phase !== 'playing') return;
-    const now = performance.now();
-    const outcome = engine.advance(now);
-    this.view = { s: engine.state, t: engine.elapsed(now), n: this.view.n + 1 };
-    const report = engine.report();
-    if (report.mistakes > this.mistakes) { this.flash++; play('miss'); }
-    this.mistakes = report.mistakes;
-    if (outcome) {
-      void this.report();
+    const engine = this.engine, sid = this.sid;
+    if (!engine || !sid || this.phase !== 'playing') return;
+    let outcome;
+    try {
+      const now = performance.now();
+      outcome = engine.advance(now);
+      this.view = { s: engine.state, t: engine.elapsed(now), n: this.view.n + 1 };
+      const report = engine.report();
+      if (report.mistakes > this.mistakes) { this.flash++; play('miss'); }
+      this.mistakes = report.mistakes;
+    } catch (error) {
+      this.fault(sid, error);
       return;
+    }
+    if (outcome) {
+      void this.report(); // `complete` carries stalledMs
+      return;
+    }
+    // Lua's deadline is wall-clock: report the cumulative paused time whenever a stall added to it.
+    const stalled = Math.round(engine.stalledMs);
+    if (stalled > this.stallSent) {
+      this.stallSent = stalled;
+      void call('stall', this.gen, { sid, stalledMs: stalled });
     }
     this.frame = requestAnimationFrame(this.loop);
   };
@@ -191,23 +254,32 @@ class Session {
     if (!engine || !sid || !spec || this.reported || !engine.outcome) return;
     this.reported = true;
     const outcome = engine.outcome;
-    const report = engine.report();
-    const result = {
-      sid,
-      status: outcome.status,
-      reason: outcome.reason,
-      score: report.score,
-      grade: gradeFor(outcome.status, report),
-      mistakes: report.mistakes,
-      durationMs: Math.round(engine.simT),
-      stalledMs: Math.round(engine.stalledMs),
-      metrics: cleanMetrics(engine.def.metrics, report.metrics),
-    };
+    let result: Feedback & Record<string, unknown>;
+    try {
+      const report = engine.report();
+      result = {
+        sid,
+        status: outcome.status,
+        reason: outcome.reason,
+        score: report.score,
+        grade: gradeFor(outcome.status, report),
+        mistakes: report.mistakes,
+        durationMs: Math.round(engine.simT),
+        stalledMs: Math.round(engine.stalledMs),
+        metrics: cleanMetrics(engine.def.metrics, report.metrics),
+      };
+    } catch (error) {
+      this.fault(sid, error);
+      return;
+    }
     play(outcome.status === 'success' ? 'success' : 'fail');
     this.showFeedback(result, spec.feedbackMs);
     const reply = await call('complete', this.gen, result);
-    // If Lua rejected or lost the report, it resolves the session itself (deadline or error path).
-    if (!reply.ok) console.warn('[cortex-minigames] completion not accepted:', reply.error);
+    if (reply.ok || this.sid !== sid) return;
+    // Lua rejected the report and resolved the run itself. A named error reason is its verdict;
+    // otherwise (stale, transport) Lua's own close carries the verdict.
+    if ((REASONS.error as readonly string[]).includes(reply.error)) this.adoptVerdict('error', reply.error, spec.feedbackMs);
+    else console.warn('[cortex-minigames] completion not accepted:', reply.error);
   }
 
   private showFeedback(feedback: Feedback, ms: number): void {
@@ -216,12 +288,34 @@ class Session {
     this.feedback = feedback;
     this.phase = 'feedback';
     const sid = this.sid;
-    this.later(() => { if (this.sid === sid) this.teardown(); }, ms);
+    this.clearTimer(this.feedbackTimer);
+    this.feedbackTimer = this.later(() => { if (this.sid === sid) this.teardown(); }, ms);
   }
 
-  /** Lua decided the terminal outcome (cancel, deadline, error). Stop immediately, show it briefly. */
+  /** Lua's verdict replaces the banner when they differ, and gets its own full display time. */
+  private adoptVerdict(status: Status, reason: string, ms: number): void {
+    const shown = this.feedback;
+    if (shown && shown.status === status && shown.reason === reason) return;
+    if (shown?.status === 'success' && status !== 'success') play('fail');
+    this.showFeedback({ status, reason, grade: null, score: null }, ms);
+  }
+
+  /** A game threw. Stop simulating, show the error state and let Lua end the run (error/ui_error). */
+  private fault(sid: string, error: unknown): void {
+    console.error('[cortex-minigames] game fault:', error);
+    void call('fault', this.gen, { sid, message: describe(error) });
+    if (this.sid !== sid || this.phase === 'feedback') return;
+    this.reported = true;
+    cancelAnimationFrame(this.frame);
+    silence();
+    play('fail');
+    this.showFeedback({ status: 'error', reason: 'ui_error', grade: null, score: null }, this.spec?.feedbackMs ?? 0);
+  }
+
+  /** Lua decided the terminal outcome (cancel, deadline, error). Stop immediately, show it briefly.
+   *  If the banner is already up, Lua's verdict still wins: it is the result the caller receives. */
   private finishLocal(status: Status, reason: string, feedbackMs: number): void {
-    if (this.phase === 'feedback') return;
+    if (this.phase === 'feedback') { this.adoptVerdict(status, reason, feedbackMs); return; }
     this.reported = true;
     this.engine?.releaseAll(performance.now());
     silence();
@@ -243,9 +337,14 @@ class Session {
     this.view = { s: null, t: 0, n: 0 };
   }
 
-  private later(fn: () => void, ms: number): void {
+  private later(fn: () => void, ms: number): number {
     const id = window.setTimeout(() => { this.timers.delete(id); fn(); }, ms);
     this.timers.add(id);
+    return id;
+  }
+
+  private clearTimer(id: number): void {
+    if (this.timers.delete(id)) clearTimeout(id);
   }
 
   // --- input ---------------------------------------------------------------------------------

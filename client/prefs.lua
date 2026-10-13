@@ -12,6 +12,26 @@ local KEY_ACTIONS = { up = true, down = true, left = true, right = true, primary
 local DEFAULTS = { v = VERSION, volume = 0.5, muted = false, motion = 'auto', scale = 1.0, keys = {}, practiced = {} }
 local current
 
+-- Rebindable KeyboardEvent.code values. Escape, Backspace, Enter and the arrows keep fixed meanings
+-- in every game and can never be bound to an action.
+local RESERVED_KEYS = { Escape = true, Backspace = true, Enter = true, ArrowUp = true, ArrowDown = true, ArrowLeft = true, ArrowRight = true }
+local NAMED_KEYS = {
+    Space = true, Tab = true, ShiftLeft = true, ShiftRight = true, ControlLeft = true, ControlRight = true, AltLeft = true, AltRight = true,
+    Minus = true, Equal = true, BracketLeft = true, BracketRight = true, Semicolon = true, Quote = true, Backquote = true,
+    Backslash = true, Comma = true, Period = true, Slash = true, CapsLock = true,
+}
+
+--- Whether `code` may be bound to an action. Returns true, or false and 'reserved' / 'invalid'.
+function Prefs.checkKey(code)
+    if type(code) ~= 'string' then return false, 'invalid' end
+    if RESERVED_KEYS[code] then return false, 'reserved' end
+    if NAMED_KEYS[code] or code:match('^Key[A-Z]$') or code:match('^Digit[0-9]$') or code:match('^Numpad[0-9]$')
+        or code:match('^F[1-9]$') or code:match('^F1[0-2]$') then
+        return true
+    end
+    return false, 'invalid'
+end
+
 local function clamp(value, min, max, fallback)
     if type(value) ~= 'number' or value ~= value then return fallback end
     return math.min(max, math.max(min, value))
@@ -30,7 +50,7 @@ local function sanitize(raw)
     }
     if type(raw.keys) == 'table' then
         for action, code in pairs(raw.keys) do
-            if KEY_ACTIONS[action] and type(code) == 'string' and #code <= 32 and code:match('^%w+$') then out.keys[action] = code end
+            if KEY_ACTIONS[action] and Prefs.checkKey(code) then out.keys[action] = code end
         end
     end
     if type(raw.practiced) == 'table' then
@@ -68,7 +88,7 @@ function Prefs.effective()
         if overrides.motion == 'auto' or overrides.motion == 'reduced' or overrides.motion == 'full' then out.motion = overrides.motion end
         out.scale = clamp(overrides.scale, 0.75, 1.5, out.scale)
         for action, code in pairs(overrides.keys or {}) do
-            if KEY_ACTIONS[action] and type(code) == 'string' and code ~= '' and code:match('^%w+$') then out.keys[action] = code end
+            if KEY_ACTIONS[action] and Prefs.checkKey(code) then out.keys[action] = code end
         end
     end
     return out

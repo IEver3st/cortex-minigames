@@ -3,6 +3,7 @@
 
 import { getGame } from '../games/registry';
 import type { GameDef } from './game';
+import { TIMEOUT_BOUNDS } from './protocol';
 import { MAX_SEED } from './rng';
 import { resolveParams, type Params } from './schema';
 import { PRESETS, type Preset } from './types';
@@ -18,7 +19,7 @@ export interface PlaySpec {
 export type Prepared = { def: GameDef; preset: Preset; params: Params; seed: number; timeoutMs: number };
 export type PrepareError = { reason: 'unknown_game' | 'invalid_options' | 'invalid_params'; field?: string; message: string };
 
-export const TIMEOUT_BOUNDS = { min: 1000, max: 180000 } as const;
+export { TIMEOUT_BOUNDS };
 
 export function prepare(spec: PlaySpec): { ok: true; value: Prepared } | { ok: false; error: PrepareError } {
   const def = getGame(spec.game);
@@ -30,10 +31,14 @@ export function prepare(spec: PlaySpec): { ok: true; value: Prepared } | { ok: f
   const resolved = resolveParams(def.params, def.presets[preset], spec.params);
   if ('error' in resolved) return { ok: false, error: { reason: 'invalid_params', field: resolved.error.field, message: resolved.error.message } };
   const timeoutMs = spec.timeoutMs ?? def.defaultTimeoutMs(resolved.params);
-  if (!Number.isInteger(timeoutMs) || timeoutMs < TIMEOUT_BOUNDS.min || timeoutMs > TIMEOUT_BOUNDS.max) {
+  const timeoutInBounds = Number.isInteger(timeoutMs) && timeoutMs >= TIMEOUT_BOUNDS.min && timeoutMs <= TIMEOUT_BOUNDS.max;
+  // Reject invalid caller budgets first, but don't let a derived budget hide contradictory params.
+  if (timeoutInBounds || spec.timeoutMs == null) {
+    const contradiction = def.check(resolved.params, timeoutMs);
+    if (contradiction) return { ok: false, error: { reason: 'invalid_params', field: 'params', message: contradiction } };
+  }
+  if (!timeoutInBounds) {
     return { ok: false, error: { reason: 'invalid_options', field: 'timeoutMs', message: `timeoutMs must be ${TIMEOUT_BOUNDS.min}..${TIMEOUT_BOUNDS.max}` } };
   }
-  const contradiction = def.check(resolved.params, timeoutMs);
-  if (contradiction) return { ok: false, error: { reason: 'invalid_params', field: 'params', message: contradiction } };
   return { ok: true, value: { def, preset, params: resolved.params, seed, timeoutMs } };
 }

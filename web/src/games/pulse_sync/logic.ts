@@ -39,13 +39,86 @@ export type PulseState = {
 
 export const inWindow = (s: PulseState, lane: Lane): boolean => Math.abs(lane.pos - MARKER) <= s.p.window / 2;
 
-/** Place every lane so that, moving naturally, all pulses cross the marker together at `alignAt`. */
+/** Shortest time from a round's start until its last lane first reaches its window. No sync, natural
+ *  or parked, can land sooner, which is what `minDurationMs` relies on. */
+export const MIN_ENTRY_MS = 500;
+const LEAD_MIN = 1800, LEAD_MAX = 3600, LEAD_SCAN_MIN = 1200;
+
+/** Lane `pos` that puts it on the marker `lead` ms from now. */
+const phaseFor = (period: number, lead: number): number => (((MARKER - lead / period) % 1) + 1) % 1;
+
+/** In-window intervals of one lane over [0, until] ms from now, given its current phase. */
+function laneIntervals(pos: number, period: number, half: number, until: number): [number, number][] {
+  const out: [number, number][] = [];
+  // k-th visit: the pulse is inside [MARKER - half, MARKER + half] between these two times.
+  for (let k = -1; ; k++) {
+    const from = (k + MARKER - half - pos) * period;
+    const to = (k + MARKER + half - pos) * period;
+    if (from > until) break;
+    if (to >= 0) out.push([Math.max(0, from), Math.min(until, to)]);
+  }
+  return out;
+}
+
+/** For lanes placed for `lead`: when the last lane first enters its window, and when every lane is first
+ *  inside together (ms from now). The planned alignment sits at `lead` itself. */
+export function alignmentProfile(periods: number[], window: number, lead: number): { entry: number; first: number } {
+  const half = window / 2;
+  let together: [number, number][] = [[0, lead]];
+  let entry = 0;
+  for (const period of periods) {
+    const own = laneIntervals(phaseFor(period, lead), period, half, lead);
+    entry = Math.max(entry, own.length ? own[0][0] : lead);
+    const next: [number, number][] = [];
+    for (const [a0, a1] of together) for (const [b0, b1] of own) {
+      const from = Math.max(a0, b0), to = Math.min(a1, b1);
+      if (from <= to) next.push([from, to]);
+    }
+    together = next;
+  }
+  together.sort((x, y) => x[0] - y[0]);
+  return { entry, first: together.length ? together[0][0] : lead };
+}
+
+/** Place every lane so that, moving naturally, all pulses cross the marker together at `alignAt`.
+ *  The lead is chosen so the planned alignment is the first time every pulse is inside together and
+ *  the last lane needs at least MIN_ENTRY_MS to reach its window. Bounded random draws, then a scan
+ *  that may shorten the lead to 1.2 s; if nothing keeps the planned alignment first (close periods,
+ *  wide windows), the entry guarantee alone is kept, constructed if necessary. */
 function rephase(s: PulseState, now: number, rng: Rng): void {
-  const lead = rng.range(1800, 3600);
+  const periods = s.lanes.map((lane) => lane.period);
+  const half = s.p.window / 2;
+  let fallback = -1;
+  const judge = (candidate: number): boolean => {
+    const { entry, first } = alignmentProfile(periods, s.p.window, candidate);
+    if (entry < MIN_ENTRY_MS) return false;
+    // The together-interval that ends at the planned alignment starts half a window before it.
+    if (first >= candidate - half * Math.min(...periods) - 1) return true;
+    if (fallback < 0) fallback = candidate;
+    return false;
+  };
+  let lead = -1;
+  for (let attempt = 0; attempt < 24 && lead < 0; attempt++) {
+    const candidate = rng.range(LEAD_MIN, LEAD_MAX);
+    if (judge(candidate)) lead = candidate;
+  }
+  if (lead < 0) {
+    const valid: number[] = [];
+    for (let candidate = LEAD_SCAN_MIN; candidate <= LEAD_MAX; candidate += 10) if (judge(candidate)) valid.push(candidate);
+    if (valid.length) lead = rng.pick(valid);
+  }
+  if (lead < 0) lead = fallback;
+  if (lead < 0) {
+    // Constructed: the slowest lane enters its window MIN_ENTRY_MS + 20 ms from now, and the lead is
+    // that lane's latest visit inside the lead range.
+    const slow = Math.max(...periods);
+    const base = half * slow + MIN_ENTRY_MS + 20;
+    lead = base + Math.max(0, Math.floor((LEAD_MAX - base) / slow)) * slow;
+  }
   s.alignAt = now + lead;
   for (const lane of s.lanes) {
     lane.parked = false;
-    lane.pos = (((MARKER - lead / lane.period) % 1) + 1) % 1;
+    lane.pos = phaseFor(lane.period, lead);
   }
 }
 
@@ -77,7 +150,9 @@ export const pulseSync = defineGame<PulseParams, PulseState>({
     { actions: ['primary'], label: 'Sync' },
   ],
   tutorial: 'Sync when every pulse sits inside its bracket on the marker. Park a lane to hold it while the others catch up.',
-  minDurationMs: 800,
+  // A parked or natural sync needs every lane inside its window; the last one arrives no sooner
+  // than MIN_ENTRY_MS into the first round.
+  minDurationMs: 450,
   defaultTimeoutMs: (p) => Math.round(2000 + p.rounds * (3600 + p.periodMax * 2)),
   check(p, timeoutMs) {
     if (p.periodMin > p.periodMax) return 'period_range_inverted';

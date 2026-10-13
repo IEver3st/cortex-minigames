@@ -1,6 +1,6 @@
 # Design brief
 
-Follows `../CORTEX-DESIGN.md`. Tokens: `web/src/cortex.css`, a verbatim copy of
+Follows `../../[cortex-test]/CORTEX-DESIGN.md`. Tokens: `web/src/cortex.css`, a verbatim copy of
 `cortex-design/tokens.css`.
 
 1. **Surface and situation.** An interaction surface that opens on demand while the player is on

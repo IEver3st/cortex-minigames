@@ -90,7 +90,8 @@ export const patternRebuild = defineGame<PatternParams, PatternState>({
     { actions: ['alt'], label: 'Submit' },
   ],
   tutorial: 'Memorise where each piece sits and which way it faces, then rebuild the layout and submit.',
-  minDurationMs: 1500,
+  // Input is ignored until the preview ends, at least 1250 ms in.
+  minDurationMs: 1200,
   defaultTimeoutMs: (p) => Math.round(p.previewMs + 6000 + p.pieces * 4000 + (p.rotation ? p.pieces * 1500 : 0)),
   check(p, timeoutMs) {
     if (p.pieces >= p.size * p.size) return 'too_many_pieces';

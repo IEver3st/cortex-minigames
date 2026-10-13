@@ -17,6 +17,29 @@ let context: AudioContext | null = null;
 let volume = 0.5;
 let muted = false;
 const live = new Set<OscillatorNode>();
+/** The state the context should settle in. resume() and suspend() are async and must not overlap. */
+let wanted: 'running' | 'suspended' = 'suspended';
+let switching = false;
+
+/** Move the context toward `wanted`, one transition at a time. A resume still in flight when the
+ *  session ends is followed by a suspend once it settles, so an idle UI never keeps audio running. */
+function sync(): void {
+  const ctx = context;
+  if (!ctx || switching || ctx.state === 'closed' || ctx.state === wanted) return;
+  const target = wanted;
+  switching = true;
+  let op: Promise<void>;
+  try {
+    op = target === 'running' ? ctx.resume() : ctx.suspend();
+  } catch {
+    switching = false;
+    return;
+  }
+  void op.catch(() => {}).then(() => {
+    switching = false;
+    if (wanted !== target) sync();
+  });
+}
 
 export function configureAudio(next: { volume: number; muted: boolean }): void {
   volume = Math.min(1, Math.max(0, next.volume));
@@ -27,7 +50,8 @@ export function play(cue: Cue): void {
   if (muted || volume <= 0 || typeof AudioContext === 'undefined') return;
   try {
     context ??= new AudioContext();
-    if (context.state === 'suspended') void context.resume();
+    wanted = 'running';
+    sync();
     const spec = CUES[cue];
     let at = context.currentTime;
     for (const freq of spec.freq) {
@@ -58,5 +82,6 @@ export function silence(): void {
     try { osc.stop(); } catch { /* already stopped */ }
   }
   live.clear();
-  if (context && context.state === 'running') void context.suspend();
+  wanted = 'suspended';
+  sync();
 }

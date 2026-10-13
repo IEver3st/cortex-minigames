@@ -95,7 +95,7 @@ RegisterCommand('demo_sequence', function(_, args)
     local composition = COMPOSITIONS[args[1] or 'electrical']
     if not composition then return say('Use: electrical, receiver or mechanical') end
     CreateThread(function()
-        local result = CortexMinigamesCaller.playSequence({ steps = composition.steps, deadlineMs = 120000 })
+        local result = CortexMinigamesCaller.playSequence({ title = composition.title, steps = composition.steps, deadlineMs = 120000 })
         say(describe(result))
         for index, step in ipairs(result.steps or {}) do
             say(('  %d. %s %s/%s attempts=%d'):format(index, step.id, step.status, step.reason, step.attempts))

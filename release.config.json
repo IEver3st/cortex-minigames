@@ -1,0 +1,14 @@
+{
+  "resourceName": "cortex-minigames",
+  "variants": ["open"],
+  "nui": {
+    "cwd": "web",
+    "install": "bun install --frozen-lockfile",
+    "build": "bun run build"
+  },
+  "include": ["examples/**", "licenses/**", "THIRD_PARTY_NOTICES.md"],
+  "exclude": ["docs/contributing.md", "docs/runtime-validation.md", "DESIGN.md", "scripts/**", "tests/**", "artifacts/**"],
+  "editableFiles": ["config.lua", "locales/*.lua", "caller.lua"],
+  "allowSourceMaps": false,
+  "outDir": ".release"
+}

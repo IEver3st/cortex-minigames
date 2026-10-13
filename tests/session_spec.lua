@@ -135,6 +135,7 @@ H.eq(H.focus.focused, false, 'focus released after escape')
 -- 11. Pad B cancels through native input.
 response, results = begin('caller-a', { game = 'timing' })
 msg = open(); ready(msg); began(msg)
+H.tick(5) -- B goes down after the session opened
 H.usingKeyboard = false
 H.padDown = { [202] = true }
 H.tick(20)
@@ -181,7 +182,7 @@ response, results = begin('caller-a', { game = 'pressure' })
 msg = open()
 H.eq(msg.spec.practice, true, 'first use shows practice')
 ready(msg)
-H.tick(Config.Session.practiceTimeoutMs + 50)
+H.tick(Config.Session.practiceTimeoutMs + CortexMinigames.Schema.PRACTICE_GRACE_MS + 50)
 H.eq(results[1] and results[1].reason, 'practice_idle', 'practice idle')
 
 -- 16. Invalid options are rejected synchronously with actionable detail.
@@ -231,5 +232,138 @@ H.eq(H.focus.cursor, false, 'explicit keyboard mode never shows the cursor')
 H.invoking = 'caller-a'; H.exports.Cancel(response.sessionId); H.invoking = nil
 H.invoking = nil
 H.tick(10)
+
+local function cancelAs(owner, id) H.invoking = owner; H.exports.Cancel(id); H.invoking = nil; H.tick(10) end
+
+-- 20. A UI-side refusal carries the UI's rule code as error.message.
+response, results = begin('caller-a', { game = 'timing' })
+msg = open()
+H.call('ready', { protocol = 1, gen = gen, sid = msg.sid, ok = false, reason = 'invalid_params', field = 'params', message = 'time_budget_too_short' })
+H.eq(results[1].error and results[1].error.message, 'time_budget_too_short', 'rule code reaches error.message')
+H.eq(results[1].error and results[1].error.field, 'params', 'field reported')
+response, results = begin('caller-a', { game = 'timing' })
+msg = open()
+H.call('ready', { protocol = 1, gen = gen, sid = msg.sid, ok = false, reason = 'generation_failed', field = '', message = 'challenge generation failed' })
+H.eq(results[1].status, 'error', 'generation failure is an error')
+H.eq(results[1].error and results[1].error.field, 'params', 'empty field falls back to params')
+
+-- 21. Practice confirmed in the last moment still plays its cue and starts.
+CortexMinigames.Prefs.get().practiced.pressure = nil
+response, results = begin('caller-a', { game = 'pressure' })
+msg = open(); ready(msg)
+H.tick(Config.Session.practiceTimeoutMs - 100) -- confirm lands at the edge; the 650 ms cue follows
+H.tick(650)
+H.eq(#results, 0, 'late confirm is not practice_idle')
+H.eq(began(msg).ok, true, 'began after late confirm accepted')
+complete(msg, { durationMs = 1600 })
+H.eq(results[1] and results[1].status, 'success', 'late-confirmed practice plays')
+
+-- 22. Stalls reported by the UI extend the hard deadline: cumulative, monotonic, capped per run.
+response, results = begin('caller-a', { game = 'timing' })
+msg = open(); ready(msg); began(msg)
+local function stall(ms) return H.call('stall', { protocol = 1, gen = gen, sid = msg.sid, stalledMs = ms }) end
+H.eq(stall(2000).ok, true, 'stall accepted')
+H.eq(stall(2000).ok, true, 'repeat of the same total is harmless')
+H.eq(stall(1000).ok, false, 'decreasing total refused')
+H.eq(stall(1.5).ok, false, 'non-integer refused')
+H.tick(6000 + Config.Session.hardGraceMs + 500)
+H.eq(#results, 0, 'stall time does not count against the run')
+H.tick(1600)
+H.eq(results[1] and results[1].reason, 'hard_deadline', 'extended deadline still ends the run')
+response, results = begin('caller-a', { game = 'timing' })
+msg = open(); ready(msg); began(msg)
+stall(60000)
+H.tick(6000 + Config.Session.hardGraceMs + 6000 + 50)
+H.eq(results[1] and results[1].reason, 'hard_deadline', 'extension capped at the run timeout')
+H.eq(H.call('stall', { protocol = 1, gen = gen, sid = msg.sid, stalledMs = 1 }).ok, false, 'stall after the run is stale')
+
+-- 23. UI fault ({ sid, message }) ends the run as error/ui_error.
+response, results = begin('caller-a', { game = 'timing' })
+msg = open(); ready(msg); began(msg)
+H.eq(H.call('fault', { protocol = 1, gen = gen, sid = msg.sid, message = 'TypeError: x is undefined\nat game.ts' }).ok, true, 'fault acked')
+H.eq(results[1] and results[1].reason, 'ui_error', 'fault ends as ui_error')
+H.eq(H.focus.focused, false, 'focus released after fault')
+
+-- 24. Boot is safe to repeat while idle and while a run is still preparing.
+local again1, again2 = H.call('boot', {}), H.call('boot', {})
+H.eq(again1.ok and again2.ok, true, 'repeated boot acked')
+H.eq(again2.data.gen, gen, 'generation unchanged')
+response, results = begin('caller-a', { game = 'timing' })
+msg = open()
+H.call('boot', {})
+H.eq(#results, 0, 'boot before ready keeps the run')
+ready(msg); began(msg); complete(msg)
+H.eq(results[1] and results[1].status, 'success', 'session after repeated boots works')
+
+-- 25. Pad: a button held when the session opens never presses until released and pressed again.
+local function inputs(from)
+    local out = {}
+    for i = from + 1, #H.sent do if H.sent[i].type == 'input' then out[#out + 1] = H.sent[i].kind .. ':' .. H.sent[i].action end end
+    return table.concat(out, ',')
+end
+H.usingKeyboard = false
+H.padDown = { [201] = true, [202] = true }
+response, results = begin('caller-a', { game = 'timing' })
+msg = open(); ready(msg); began(msg)
+local mark = #H.sent
+H.tick(20)
+H.eq(inputs(mark), '', 'held A and B ignored at open')
+H.eq(#results, 0, 'held B does not cancel')
+H.padDown = {}
+H.tick(20)
+H.eq(inputs(mark), '', 'release of a seeded button sends nothing')
+H.padDown = { [201] = true }
+H.tick(20)
+H.eq(inputs(mark), 'press:primary', 'fresh press after release counts')
+H.padDown = nil
+cancelAs('caller-a', response.sessionId)
+
+-- 26. Pad: sticks return to neutral when the keyboard takes over, and on session end.
+local stick = 0.0
+local realNormal = GetDisabledControlNormal
+GetDisabledControlNormal = function(_, control) return control == Config.Pad.axes.lx and stick or 0.0 end
+local function lastAxes() for i = #H.sent, 1, -1 do if H.sent[i].type == 'axes' then return H.sent[i] end end end
+response, results = begin('caller-a', { game = 'pressure' })
+msg = open(); ready(msg); began(msg)
+stick = 1.0; H.tick(40)
+H.eq(lastAxes().lx, 1.0, 'stick sent')
+H.usingKeyboard = true; H.tick(40)
+H.eq(lastAxes().lx, 0.0, 'keyboard takeover centres the stick')
+H.usingKeyboard = false; H.tick(40)
+H.eq(lastAxes().lx, 1.0, 'pad again resends the held stick')
+cancelAs('caller-a', response.sessionId)
+H.eq(lastAxes().lx, 0.0, 'session end centres the stick')
+GetDisabledControlNormal, H.usingKeyboard = realNormal, nil
+
+-- 27. /mgprefs key: only real, unreserved KeyboardEvent codes; replies say what happened.
+local said = {}
+H.events['chat:addMessage'] = { function(m) said[#said + 1] = m.args[2] end }
+local mgprefs = H.commands[Config.PreferenceCommand]
+local P = CortexMinigames.Prefs
+mgprefs(0, { 'key', 'primary', 'KeyG' })
+H.eq(P.get().keys.primary, 'KeyG', 'valid key stored')
+H.ok(said[#said]:find('^Saved') and said[#said]:find('swap'), 'success reply mentions swap')
+for _, code in ipairs({ 'Escape', 'Backspace', 'Enter', 'ArrowUp' }) do
+    mgprefs(0, { 'key', 'up', code })
+    H.ok(said[#said]:find('reserved'), code .. ' refused as reserved')
+end
+for _, code in ipairs({ 'KeyGG', 'F13', 'g', string.rep('A', 40), 'Numpad10' }) do
+    mgprefs(0, { 'key', 'alt', code })
+    H.eq(said[#said]:find('^Saved'), nil, code .. ' refused')
+end
+H.eq(P.get().keys.up, nil, 'reserved key not stored'); H.eq(P.get().keys.alt, nil, 'invalid key not stored')
+for _, code in ipairs({ 'Digit0', 'Numpad9', 'F12', 'F1', 'Space', 'ControlRight', 'Backquote', 'CapsLock' }) do
+    mgprefs(0, { 'key', 'alt', code })
+    H.eq(P.get().keys.alt, code, code .. ' accepted')
+end
+mgprefs(0, { 'key', 'cancel', 'KeyG' })
+H.ok(said[#said]:find('Unknown action'), 'cancel is not rebindable')
+mgprefs(0, { 'volume', '5' })
+H.eq(said[#said]:find('^Saved'), nil, 'out-of-range volume not reported as saved')
+H.eq(P.get().keys.primary, 'KeyG', 'earlier binding intact')
+P.set({ keys = { up = 'Escape', down = 'ArrowDown', primary = 'KeyE' } })
+H.eq(P.get().keys.up, nil, 'stored reserved keys are dropped on load')
+H.eq(P.get().keys.primary, 'KeyE', 'valid stored keys kept')
+mgprefs(0, { 'reset' })
 
 H.done('session_spec')

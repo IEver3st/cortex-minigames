@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { parseMessage, parsePrefs, parseStrings } from '../src/core/protocol';
+import { parseMessage, parsePrefs, parseStrings, TIMEOUT_BOUNDS } from '../src/core/protocol';
+import { prepare } from '../src/core/prepare';
 import { buildKeymap, glyph, groupLabel } from '../src/core/input';
 import { cleanMetrics } from '../src/core/result';
 
@@ -11,9 +12,11 @@ const spec = {
 
 describe('protocol', () => {
   test('rejects wrong protocol, missing generation and unknown types', () => {
-    expect(parseMessage({ protocol: 2, type: 'reset', gen: 1 })).toBeNull();
-    expect(parseMessage({ protocol: 1, type: 'reset' })).toBeNull();
+    expect(parseMessage({ protocol: 2, type: 'prefs', gen: 1 })).toBeNull();
+    expect(parseMessage({ protocol: 1, type: 'prefs' })).toBeNull();
     expect(parseMessage({ protocol: 1, type: 'explode', gen: 1 })).toBeNull();
+    // Lua never sends `reset`; the UI no longer understands it.
+    expect(parseMessage({ protocol: 1, type: 'reset', gen: 1 })).toBeNull();
     expect(parseMessage('nope')).toBeNull();
   });
   test('open requires a session id and a well-formed spec; timeout may be omitted', () => {
@@ -47,15 +50,34 @@ describe('protocol', () => {
     const strings = parseStrings({ ok: 'Fine', long: 'x'.repeat(200), n: 5 });
     expect(strings).toEqual({ ok: 'Fine' });
   });
+  test('key overrides keep only valid KeyboardEvent.code values and never reserved ones', () => {
+    const valid = { up: 'KeyI', down: 'Digit2', left: 'Numpad4', right: 'F12', primary: 'Space', alt: 'ShiftLeft', prev: 'BracketLeft', next: 'Backquote', rotate: 'CapsLock' };
+    expect(parsePrefs({ keys: valid }).keys).toEqual(valid);
+    const junk = { up: 'E', down: 'keyS', left: 'F13', right: 'F0', primary: 'Enter', alt: 'Escape', prev: 'ArrowLeft', next: 'Numpad10', rotate: 'MetaLeft' };
+    expect(parsePrefs({ keys: junk }).keys).toEqual({});
+    expect(parsePrefs({ keys: { cancel: 'KeyX', bogus: 'KeyY' } }).keys).toEqual({});
+  });
+  test('timeout cap is inclusive: exactly the maximum is accepted', () => {
+    expect(TIMEOUT_BOUNDS).toEqual({ min: 1000, max: 180000 });
+    const parsed = parseMessage({ protocol: 1, type: 'open', gen: 1, sid: 's1', spec: { ...spec, timeoutMs: TIMEOUT_BOUNDS.max, maxTimeoutMs: 999999, minTimeoutMs: 1 } });
+    if (parsed?.type !== 'open') throw new Error('expected open');
+    expect(parsed.spec.timeoutMs).toBe(180000);
+    expect(parsed.spec.maxTimeoutMs).toBe(180000);
+    expect(parsed.spec.minTimeoutMs).toBe(1000);
+    expect(prepare({ game: 'mash', timeoutMs: TIMEOUT_BOUNDS.max }).ok).toBe(true);
+    expect(prepare({ game: 'mash', timeoutMs: TIMEOUT_BOUNDS.max + 1 }).ok).toBe(false);
+    expect(prepare({ game: 'mash', timeoutMs: TIMEOUT_BOUNDS.min - 1 }).ok).toBe(false);
+  });
 });
 
 describe('input', () => {
-  test('rebinding replaces the letter binding; arrows stay; collisions are dropped', () => {
+  test('rebinding replaces the letter binding; arrows stay; a collision swaps', () => {
     const map = buildKeymap({ primary: 'KeyG', next: 'KeyQ' });
     expect(map.get('KeyG')).toBe('primary');
     expect(map.get('Enter')).toBe('primary');
     expect(map.get('ArrowUp')).toBe('up');
-    expect(map.get('KeyQ')).toBe('prev'); // 'next' tried to steal Q; earlier binding wins
+    expect(map.get('KeyQ')).toBe('next'); // 'next' takes Q ...
+    expect(map.get('KeyE')).toBe('prev'); // ... and 'prev' moves onto next's old key
     expect(glyph('keyboard', map, 'primary')).toBe('G');
     expect(glyph('pad', map, 'primary')).toBe('A');
     expect(groupLabel('keyboard', buildKeymap(), ['up', 'down', 'left', 'right'])).toEqual(['WASD']);

@@ -31,6 +31,7 @@ RegisterNetEvent('cortex-minigames-demo:requestRepair', function()
         titleKey = 'repair.breaker',
         cancel = { radius = { coords = BREAKER, maxDistance = MAX_DISTANCE } },
     }, function(result, info)
+        if not pending[info.attemptId] then return end -- the watchdog below already closed it
         pending[info.attemptId] = nil
         -- The result only says the attempt finished this way. Recheck everything mutable now.
         if result.status ~= 'success' then return notify(info.source, 'Repair failed: ' .. result.reason) end
@@ -51,7 +52,8 @@ RegisterNetEvent('cortex-minigames-demo:requestRepair', function()
     pending[attemptId] = { source = src }
 end)
 
--- Watchdog: if cortex-minigames stops, no callback will ever come. Fail closed.
+-- Watchdog: if cortex-minigames stops, its own `cancelled/resource_stopping` delivery is best
+-- effort and may run before or after this handler. Fail closed here; whichever runs second is ignored.
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= 'cortex-minigames' then return end
     for attemptId, entry in pairs(pending) do

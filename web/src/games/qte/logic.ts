@@ -53,6 +53,8 @@ export type QteState = {
   qualities: number[];
   reactions: number[];
   failed: boolean;
+  /** What the last mistake was, so a failure names its real cause. */
+  lastCause: 'missed' | 'early_release';
   lastMiss: number;
 };
 
@@ -85,7 +87,7 @@ export function windowUsed(s: QteState, t: number): number {
   return clamp((t - run.openAt) / run.def.windowMs);
 }
 
-function finishPrompt(s: QteState, ok: boolean, t: number, quality = 1): void {
+function finishPrompt(s: QteState, ok: boolean, t: number, quality = 1, cause: QteState['lastCause'] = 'missed'): void {
   if (s.run.done) return;
   s.run.done = { ok, at: t, quality: ok ? clamp(quality) : 0 };
   if (ok) {
@@ -96,6 +98,7 @@ function finishPrompt(s: QteState, ok: boolean, t: number, quality = 1): void {
   }
   s.mistakes++;
   s.lastMiss = t;
+  s.lastCause = cause;
   if (s.mistakes > s.p.mistakes) s.failed = true;
 }
 
@@ -152,7 +155,10 @@ export const qte = defineGame<QteParams, QteState>({
     return null;
   },
   create(p, rng) {
-    const s: QteState = { p, rng, index: 0, run: undefined as unknown as PromptRun, mistakes: 0, qualities: [], reactions: [], failed: false, lastMiss: -Infinity };
+    const s: QteState = {
+      p, rng, index: 0, run: undefined as unknown as PromptRun, mistakes: 0, qualities: [], reactions: [], failed: false,
+      lastCause: 'missed', lastMiss: -Infinity,
+    };
     s.run = startPrompt(s, 0);
     return s;
   },
@@ -239,8 +245,9 @@ export const qte = defineGame<QteParams, QteState>({
         run.holdStart = null;
         s.mistakes++;
         s.lastMiss = t;
+        s.lastCause = 'early_release';
         if (s.mistakes > s.p.mistakes) s.failed = true;
-      } else finishPrompt(s, false, t);
+      } else finishPrompt(s, false, t, 0, 'early_release');
     } else if (def.type === 'release') {
       const sweep = (t - run.holdStart) / (def.durationMs ?? 1500);
       const start = def.targetStart ?? 0.55, width = def.targetWidth ?? 0.18;
@@ -249,7 +256,8 @@ export const qte = defineGame<QteParams, QteState>({
     }
   },
   outcome(s) {
-    if (s.failed) return { status: 'failed', reason: s.run?.def.type === 'hold' && s.run.done && !s.run.done.ok ? 'early_release' : 'missed' };
+    // A hold never pressed is a miss; letting go too soon is an early release.
+    if (s.failed) return { status: 'failed', reason: s.lastCause };
     if (s.index >= s.p.prompts.length) return { status: 'success', reason: 'completed' };
     return null;
   },

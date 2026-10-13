@@ -28,6 +28,8 @@ export type WaveState = {
   breaks: number;
   done: boolean;
   wheel: number;
+  /** Slider goal from the pointer; the control chases it at coarse key speed. */
+  goal: null | { index: number; value: number };
 };
 
 /** Normalised control → curve parameters. Frequency 1–4 cycles, amplitude 0.25–1, phase 0–2π. */
@@ -51,6 +53,10 @@ export function waveError(a: readonly number[], b: readonly number[]): number {
 
 /** Convergence meter, 0..1. Deliberately nonlinear so it guides without revealing values. */
 export const convergence = (s: WaveState): number => clamp(1 - s.error / (s.p.tolerance * 7));
+
+/** One wheel notch. Never more than half the narrowest acceptance window (about 0.18 × tolerance on
+ *  frequency at full amplitude), so a notch can never step over the match. */
+export const wheelStep = (p: WaveParams): number => Math.min(p.adjustSpeed / 60, p.tolerance * 0.08);
 
 function pickStart(target: [number, number, number], adjustable: Axis[], p: WaveParams, rng: Rng): [number, number, number] {
   let controls: [number, number, number] = [...target];
@@ -92,7 +98,8 @@ export const waveMatch = defineGame<WaveParams, WaveState>({
     { actions: ['prev', 'next'], label: 'Fine' },
   ],
   tutorial: 'Match your solid trace to the dashed target. Pick a control, adjust it, and hold the match until it confirms.',
-  minDurationMs: 800,
+  // A match must hold for dwellMs (300 at the least) after a start at least four tolerances away.
+  minDurationMs: 280,
   defaultTimeoutMs: (p) => Math.round(5000 + p.axes * 5000 + p.dwellMs),
   check(p, timeoutMs) {
     // Fine adjustment is a sixth of coarse; one short tap must not overshoot the tolerance band.
@@ -104,7 +111,7 @@ export const waveMatch = defineGame<WaveParams, WaveState>({
     const target: [number, number, number] = [rng.range(0.1, 0.9), rng.range(0.2, 0.9), rng.next()];
     const adjustable = (['frequency', 'amplitude', 'phase'] as Axis[]).slice(0, p.axes);
     const controls = pickStart(target, adjustable, p, rng);
-    return { p, target, controls, adjustable, selected: 0, error: waveError(controls, target), dwell: 0, breaks: 0, done: false, wheel: 0 };
+    return { p, target, controls, adjustable, selected: 0, error: waveError(controls, target), dwell: 0, breaks: 0, done: false, wheel: 0, goal: null };
   },
   step(s, dt, _t, input) {
     const seconds = dt / 1000;
@@ -114,8 +121,18 @@ export const waveMatch = defineGame<WaveParams, WaveState>({
     let coarse = (held.has('right') ? 1 : 0) - (held.has('left') ? 1 : 0);
     if (coarse === 0) coarse = input.axes.lx;
     const fine = (held.has('next') ? 1 : 0) - (held.has('prev') ? 1 : 0);
-    const delta = (coarse + fine / 6) * s.p.adjustSpeed * seconds + s.wheel;
-    s.wheel = 0;
+    // Wheel notches and the slider move no faster than the coarse keys; spare notches carry over.
+    const max = s.p.adjustSpeed * seconds;
+    const notches = clamp(s.wheel, -max, max);
+    s.wheel -= notches;
+    let delta = (coarse + fine / 6) * s.p.adjustSpeed * seconds + notches;
+    if (coarse !== 0 || fine !== 0) s.goal = null; // keys and the stick take over from the slider
+    if (s.goal && s.goal.index === s.selected) {
+      // The control chases the pointer's slider position at coarse speed.
+      const gap = s.goal.value - s.controls[i];
+      delta += clamp(gap, -max, max);
+      if (Math.abs(gap) <= max) s.goal = null;
+    }
     if (delta !== 0) {
       const value = s.controls[i] + delta;
       s.controls[i] = axis === 'phase' ? ((value % 1) + 1) % 1 : clamp(value);
@@ -131,22 +148,21 @@ export const waveMatch = defineGame<WaveParams, WaveState>({
   },
   press(s, action) {
     const count = s.adjustable.length;
+    if (action === 'down' || action === 'up') { s.goal = null; s.wheel = 0; }
     if (action === 'down') s.selected = (s.selected + 1) % count;
     else if (action === 'up') s.selected = (s.selected + count - 1) % count;
   },
   pointer(s, event) {
     if (event.kind === 'set' && event.control >= 0 && event.control < s.adjustable.length) {
       s.selected = event.control;
-      const axis = s.adjustable[event.control];
-      const i = AXES.indexOf(axis);
-      // Sliders move no faster than the keys: a pointer jump is clamped to one step of travel.
-      const current = s.controls[i];
-      const wanted = clamp(event.value);
-      const limited = current + clamp(wanted - current, -0.04, 0.04);
-      s.controls[i] = axis === 'phase' ? ((limited % 1) + 1) % 1 : clamp(limited);
+      s.goal = { index: event.control, value: clamp(event.value) };
     } else if (event.kind === 'wheel') {
-      if (event.control !== undefined && event.control >= 0 && event.control < s.adjustable.length) s.selected = event.control;
-      s.wheel += event.dir * (s.p.adjustSpeed / 6) * 0.1;
+      if (event.control !== undefined && event.control >= 0 && event.control < s.adjustable.length && event.control !== s.selected) {
+        s.selected = event.control;
+        s.wheel = 0;
+      }
+      s.goal = null;
+      s.wheel += event.dir * wheelStep(s.p);
     }
   },
   outcome(s) {

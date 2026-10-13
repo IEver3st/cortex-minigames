@@ -18,11 +18,15 @@ local ALL_STATUSES = { success = true, failed = true, timeout = true, cancelled 
 
 local Attempts = {}
 local attempts = {}        -- id → attempt (pending/running only)
-local recent = {}          -- finished id → owner, bounded, for idempotent CancelAttempt
-local recentOrder = {}
+local recent = {}          -- finished id → owner, for idempotent CancelAttempt
+local recentByOwner = {}   -- owner → its own finished ids, oldest first (a busy owner never evicts another's)
+local recentOwners = {}    -- owners in first-seen order, bounding the total
+local RECENT_PER_OWNER, RECENT_OWNERS = 256, 64
 local perPlayer, perOwner, total = {}, {}, 0
 local tokens, tokenCounter = {}, 0 -- per-connection identity: a reused server id never inherits
 local rates = {}
+local dropping = {}        -- sources whose drop is being processed: no new attempts for them
+local stopping = false
 
 math.randomseed(os.time() + GetGameTimer())
 
@@ -59,15 +63,31 @@ local function allow(src)
     return true
 end
 
+local function remember(a)
+    local list = recentByOwner[a.owner]
+    if not list then
+        list = {}
+        recentByOwner[a.owner] = list
+        recentOwners[#recentOwners + 1] = a.owner
+        if #recentOwners > RECENT_OWNERS then
+            local gone = table.remove(recentOwners, 1)
+            for _, id in ipairs(recentByOwner[gone]) do recent[id] = nil end
+            recentByOwner[gone] = nil
+        end
+    end
+    recent[a.id] = a.owner
+    list[#list + 1] = a.id
+    if #list > RECENT_PER_OWNER then recent[table.remove(list, 1)] = nil end
+end
+
+--- The only place counters go down, once per attempt, so they always match live attempts.
 local function release(a)
     if not attempts[a.id] then return end
     attempts[a.id] = nil
     total = total - 1
     perPlayer[a.src] = math.max(0, (perPlayer[a.src] or 1) - 1)
     perOwner[a.owner] = math.max(0, (perOwner[a.owner] or 1) - 1)
-    recent[a.id] = a.owner
-    recentOrder[#recentOrder + 1] = a.id
-    if #recentOrder > 256 then recent[table.remove(recentOrder, 1)] = nil end
+    remember(a)
 end
 
 --- Atomically claim the attempt, then deliver to its owner. Claiming happens before any external
@@ -81,7 +101,7 @@ local function deliver(a, result, silent)
     result.attemptId = a.id
     local info = {
         attemptId = a.id, source = a.src, owner = a.owner, kind = a.kind, game = a.game, preset = a.preset,
-        seed = a.seed, elapsedMs = a.startedAt and (now() - a.startedAt) or 0,
+        seed = a.seed, seeds = a.seeds, elapsedMs = a.startedAt and (now() - a.startedAt) or 0,
     }
     Log.info('attempt.deliver', { id = a.id, owner = a.owner, status = result.status, reason = result.reason })
     local ok, problem = pcall(a.onComplete, result, info)
@@ -90,9 +110,8 @@ local function deliver(a, result, silent)
 end
 
 local function makeResult(a, status, reason)
-    local result = Schema.makeResult(a.id, a.kind == 'sequence' and 'sequence' or a.game, status, reason)
-    if a.kind == 'sequence' then result.steps = {} end
-    return result
+    if a.kind == 'sequence' then return Schema.aggregateSequence(a.id, a.spec, {}, status, reason) end
+    return Schema.makeResult(a.id, a.game, status, reason)
 end
 
 local function isCallable(value)
@@ -100,14 +119,16 @@ local function isCallable(value)
     return kind == 'function' or (kind == 'table' and getmetatable(value) ~= nil and getmetatable(value).__call ~= nil)
 end
 
-local function budgetMs(spec)
-    if spec.kind == 'sequence' then
-        if spec.deadlineMs then return spec.deadlineMs end
-        local sum = 0
-        for _, step in ipairs(spec.steps) do sum = sum + (1 + step.retries) * (Schema.estimateTimeout(step) + 8000) end
-        return math.min(Config.Bounds.maxSequenceDeadlineMs, sum)
+--- Caller-fixed step seeds by step id, or nil. Unfixed steps draw a fresh seed per attempt on the client.
+local function stepSeeds(spec)
+    local seeds
+    for _, step in ipairs(spec.steps) do
+        if step.seed then
+            seeds = seeds or {}
+            seeds[step.id] = step.seed
+        end
     end
-    return spec.timeoutMs or Config.Bounds.maxTimeoutMs
+    return seeds
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -117,7 +138,8 @@ end
 ---@return string|false attemptId, string? reason, table? detail
 function Attempts.start(owner, playerSource, rawSpec, onComplete)
     local src = tonumber(playerSource)
-    if not src or src <= 0 or src ~= math.floor(src) or GetPlayerName(src) == nil then return false, 'invalid_player' end
+    if not src or src <= 0 or src ~= math.floor(src) or GetPlayerName(src) == nil or dropping[src] then return false, 'invalid_player' end
+    if stopping then return false, 'capacity' end
     if not isCallable(onComplete) then return false, 'invalid_options', { field = 'onComplete', message = 'onComplete must be a function' } end
     if (perPlayer[src] or 0) >= Config.Server.maxActivePerPlayer then return false, 'busy' end
     if total >= Config.Server.maxActiveTotal or (perOwner[owner] or 0) >= Config.Server.maxActivePerOwner then return false, 'capacity' end
@@ -130,10 +152,12 @@ function Attempts.start(owner, playerSource, rawSpec, onComplete)
     if not sequence then spec.seed = spec.seed or math.random(0, Schema.MAX_SEED) end -- recorded for diagnostics
 
     local id = newId()
-    local ttl = budgetMs(spec) + Config.Session.startupTimeoutMs + Config.Server.expirySlackMs
+    -- Same budget as the client's own deadline (Schema.budgetMs), plus startup and slack.
+    local ttl = Schema.budgetMs(spec) + Config.Session.startupTimeoutMs + Config.Server.expirySlackMs
     local a = {
         id = id, src = src, token = tokenFor(src), owner = owner, kind = sequence and 'sequence' or 'single',
         spec = spec, game = sequence and 'sequence' or spec.game, preset = spec.preset, seed = spec.seed,
+        seeds = sequence and stepSeeds(spec) or nil,
         createdAt = now(), ttl = ttl, bucket = GetPlayerRoutingBucket(src), state = 'pending', onComplete = onComplete,
     }
     attempts[id] = a
@@ -141,6 +165,14 @@ function Attempts.start(owner, playerSource, rawSpec, onComplete)
     perPlayer[src] = (perPlayer[src] or 0) + 1
     perOwner[owner] = (perOwner[owner] or 0) + 1
 
+    -- A client that never acknowledges (UI missing, ack lost) frees the player early.
+    SetTimeout(Config.Session.startupTimeoutMs + (Config.Server.ackSlackMs or 15000), function()
+        if attempts[id] == a and a.state == 'pending' then
+            Log.warn('attempt.ack_timeout', { id = id, source = a.src })
+            TriggerClientEvent(EVENT_CANCEL, a.src, id)
+            deliver(a, makeResult(a, 'error', 'ui_startup_timeout'))
+        end
+    end)
     SetTimeout(ttl, function()
         if attempts[id] == a and (a.state == 'pending' or a.state == 'running') then
             TriggerClientEvent(EVENT_CANCEL, a.src, id)
@@ -183,7 +215,9 @@ local function reject(src, event, fields)
     Log.warn(event, fields)
 end
 
---- Validate a sequence aggregate against the attempt's own step list.
+--- Validate a sequence report against the attempt's own step list. The client's status and reason
+--- are kept; score, grade, mistakes, duration and metrics are rebuilt from the steps with the same
+--- rules the client uses (Schema.aggregateSequence).
 local function normalizeSequenceReport(payload, a)
     local spec = a.spec
     local aggregate, problem = Schema.normalizeReport({
@@ -191,11 +225,9 @@ local function normalizeSequenceReport(payload, a)
         mistakes = payload.mistakes, durationMs = payload.durationMs, metrics = {},
     }, a.id, spec.steps[1].game, Config.Bounds.maxSequenceDeadlineMs, ALL_STATUSES)
     if not aggregate then return nil, problem end
-    aggregate.game = 'sequence'
     local listed, count = Schema.isDenseArray(payload.steps or {}, #spec.steps)
     if not listed then return nil, { field = 'steps' } end
-    aggregate.steps = {}
-    local completed = 0
+    local steps = {}
     for index = 1, count do
         local entry, step = payload.steps[index], spec.steps[index]
         if type(entry) ~= 'table' or entry.id ~= step.id or entry.game ~= step.game then return nil, { field = 'steps.id' } end
@@ -204,34 +236,34 @@ local function normalizeSequenceReport(payload, a)
         if not stepResult then return nil, stepProblem end
         stepResult.id, stepResult.attempts = step.id, entry.attempts
         stepResult.apiVersion, stepResult.sessionId = nil, nil
-        if stepResult.status == 'success' then completed = completed + 1 end
-        aggregate.steps[index] = stepResult
+        steps[index] = stepResult
     end
-    -- An aggregate success needs every required step played and passed.
-    if aggregate.status == 'success' then
-        for index, step in ipairs(spec.steps) do
-            local entry = aggregate.steps[index]
-            if step.required and (not entry or entry.status ~= 'success') then return nil, { field = 'status' } end
-        end
-    end
-    aggregate.metrics = { steps = #spec.steps, completed = completed }
-    return aggregate
+    -- Success needs every step played, every required step passed, and at least one pass.
+    if aggregate.status == 'success' and not Schema.sequenceCanSucceed(spec, steps) then return nil, { field = 'status' } end
+    return Schema.aggregateSequence(a.id, spec, steps, aggregate.status, aggregate.reason)
 end
 
+--- Reported play time must fit in the time the server has seen since it created the attempt
+--- (per step and in total). Successful runs also require their canonical minimum on the server
+--- clock; duration slack applies only to reported time's upper bound, never this floor.
 local function plausible(a, result, elapsed)
-    local slack = Config.Server.durationSlackMs
-    if result.durationMs > elapsed + slack then return false end
-    if result.status == 'success' then
-        if a.kind == 'sequence' then
-            for index, entry in ipairs(result.steps) do
-                local game = Schema.games[a.spec.steps[index].game]
-                if entry.status == 'success' and entry.durationMs < game.minDurationMs then return false end
+    local limit = elapsed + Config.Server.durationSlackMs
+    if result.durationMs > limit then return false end
+    local minimumElapsed = 0
+    if a.kind == 'sequence' then
+        for index, entry in ipairs(result.steps) do
+            if entry.durationMs > limit then return false end
+            if entry.status == 'success' then
+                local minimum = Schema.games[a.spec.steps[index].game].minDurationMs
+                if entry.durationMs < minimum then return false end
+                minimumElapsed = minimumElapsed + minimum
             end
-        elseif result.durationMs < Schema.games[a.game].minDurationMs then
-            return false
         end
+    elseif result.status == 'success' then
+        minimumElapsed = Schema.games[a.game].minDurationMs
+        if result.durationMs < minimumElapsed then return false end
     end
-    return true
+    return elapsed >= minimumElapsed
 end
 
 RegisterNetEvent('cortex-minigames:attempt:ack', function(attemptId, accepted, reason)
@@ -258,7 +290,9 @@ RegisterNetEvent('cortex-minigames:attempt:complete', function(attemptId, payloa
     if not a then return reject(src, 'attempt.unknown_or_finished') end
     if a.src ~= src or a.token ~= tokens[src] then return reject(src, 'attempt.wrong_player') end
     if a.state ~= 'running' then return reject(src, 'attempt.finish_without_start') end
-    local elapsed = now() - a.startedAt
+    -- Measured from creation: the client cannot start earlier, and a late-processed ack cannot
+    -- shrink the window an honest result has to fit in.
+    local elapsed = now() - a.createdAt
     if now() - a.createdAt > a.ttl then
         TriggerClientEvent(EVENT_CANCEL, src, a.id)
         return deliver(a, makeResult(a, 'cancelled', 'attempt_expired'))
@@ -289,28 +323,41 @@ AddEventHandler('playerJoining', function()
     tokenFor(src)
 end)
 
+--- Live attempts matching `predicate`, copied out first: owner callbacks run during delivery and
+--- may start or cancel attempts, which must never disturb the traversal.
+local function snapshot(predicate)
+    local list = {}
+    for _, a in pairs(attempts) do
+        if predicate(a) then list[#list + 1] = a end
+    end
+    return list
+end
+
 AddEventHandler('playerDropped', function()
     local src = source
-    for _, a in pairs(attempts) do
-        if a.src == src then deliver(a, makeResult(a, 'cancelled', 'logged_out')) end
+    dropping[src] = true
+    for _, a in ipairs(snapshot(function(a) return a.src == src end)) do
+        deliver(a, makeResult(a, 'cancelled', 'logged_out'))
     end
-    tokens[src], rates[src], perPlayer[src] = nil, nil, nil
+    dropping[src] = nil
+    tokens[src], rates[src] = nil, nil
+    -- release() counted each delivered attempt down, so perPlayer already matches live attempts.
+    if (perPlayer[src] or 0) == 0 then perPlayer[src] = nil end
 end)
 
 AddEventHandler('onResourceStop', function(resource)
     if resource == RESOURCE then
         -- Best effort: owners may still receive this while the runtime is stopping.
-        for _, a in pairs(attempts) do
+        stopping = true
+        for _, a in ipairs(snapshot(function() return true end)) do
             TriggerClientEvent(EVENT_CANCEL, a.src, a.id)
             deliver(a, makeResult(a, 'cancelled', 'resource_stopping'))
         end
         return
     end
-    for _, a in pairs(attempts) do
-        if a.owner == resource then
-            TriggerClientEvent(EVENT_CANCEL, a.src, a.id)
-            deliver(a, nil, true) -- owner is gone: close without delivery
-        end
+    for _, a in ipairs(snapshot(function(a) return a.owner == resource end)) do
+        TriggerClientEvent(EVENT_CANCEL, a.src, a.id)
+        deliver(a, nil, true) -- owner is gone: close without delivery
     end
 end)
 

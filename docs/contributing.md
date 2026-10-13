@@ -1,3 +1,24 @@
+# Development
+
+Source checkouts only; the customer build ships `web/dist` and none of the tooling below.
+
+```powershell
+cd web; bun install --frozen-lockfile; bun run dev   # playground at http://localhost:5173
+.\scripts\check.ps1                                    # Lua syntax + specs, UI tests, type check, build
+```
+
+Release builds come from the fivem-release builder, configured by `release.config.json`, and land in
+`.release/<version>/`. `scripts/package.ps1` makes an unescrowed zip under `artifacts/` for
+internal use only.
+
+The playground runs the production session, engine and views with a mocked Lua bridge: pick a game,
+preset and parameters (invalid configurations show their error before launch), fix a seed, switch
+scale, motion, audio and scene, simulate caller cancel, death, hard deadline, resource restart,
+dropped `ready` and rejected reports, run the example compositions, and copy the equivalent Lua call.
+
+Design brief and review: [DESIGN.md](../DESIGN.md). User-run acceptance:
+[runtime-validation.md](runtime-validation.md).
+
 # Adding a game
 
 A game owns its mechanics; the engine and session runtime own time, input, focus and lifecycle.

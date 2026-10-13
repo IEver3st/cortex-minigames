@@ -16,6 +16,7 @@ local function synthetic(game, status, reason)
     return {
         apiVersion = 1, sessionId = nil, game = game or 'unknown', status = status, reason = reason,
         score = nil, grade = nil, durationMs = 0, mistakes = 0, metrics = {},
+        steps = game == 'sequence' and {} or nil,
     }
 end
 

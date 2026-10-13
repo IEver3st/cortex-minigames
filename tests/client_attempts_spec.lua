@@ -50,5 +50,74 @@ H.invoking = nil
 H.fire('cortex-minigames:attempt:start', nil, string.rep('c', 32), options)
 ack = lastServer('cortex-minigames:attempt:ack')
 H.eq(ack.args[3], 'busy', 'busy refusal')
+H.invoking = 'local'
+H.exports.Cancel(CortexMinigames.Session.active().id)
+H.invoking = nil
+H.tick(10)
+
+-- End to end: the server accepts the client's aggregate for every way a sequence can end.
+dofile('server/attempts.lua')
+local A = CortexMinigames.Attempts
+H.players[1] = 'p1'; H.fire('playerJoining', 1)
+for g in pairs(S.games) do CortexMinigames.Prefs.get().practiced[g] = true end
+local cc, sc = #H.clientEvents, #H.serverEvents
+local function pump()
+    while cc < #H.clientEvents or sc < #H.serverEvents do
+        while cc < #H.clientEvents do
+            cc = cc + 1
+            local e = H.clientEvents[cc]
+            H.fire(e.name, nil, table.unpack(S.copyPlain(e.args), 1, 3))
+        end
+        while sc < #H.serverEvents do
+            sc = sc + 1
+            local e = H.serverEvents[sc]
+            H.fire(e.name, 1, table.unpack(S.copyPlain(e.args), 1, 3))
+        end
+    end
+end
+local function uiStep(fields)
+    local m = H.last('open')
+    H.call('ready', { protocol = 1, gen = gen, sid = m.sid, ok = true, timeoutMs = 8000 })
+    H.call('began', { protocol = 1, gen = gen, sid = m.sid })
+    if not fields then return m end
+    local data = { protocol = 1, gen = gen, sid = m.sid, status = 'success', reason = 'completed', score = 90, grade = 'good', mistakes = 0, durationMs = S.games[m.spec.game].minDurationMs + 200, metrics = {} }
+    for k, v in pairs(fields) do data[k] = v end
+    H.time = H.time + data.durationMs
+    H.call('complete', data)
+    H.tick(Config.Session.defaultFeedbackMs + Config.Session.stepGapMs + 20)
+    return m
+end
+local steps = { { game = 'timing', id = 'a' }, { game = 'pressure', id = 'b' } }
+local endings = {
+    { 'escape', 'cancelled', 'player_cancelled', function(m) H.call('cancel', { protocol = 1, gen = gen, sid = m.sid }) end },
+    { 'fault', 'error', 'ui_error', function(m) H.call('fault', { protocol = 1, gen = gen, sid = m.sid, message = 'boom' }) end },
+    { 'death', 'cancelled', 'player_died', function() H.dead = true; H.tick(Config.Session.contextIntervalMs + 20); H.dead = false end },
+    { 'logout', 'cancelled', 'logged_out', function() TriggerEvent('QBCore:Client:OnPlayerUnload') end },
+}
+for _, case in ipairs(endings) do
+    local got = {}
+    local attemptId = A.start('heist', 1, { steps = steps }, function(result) got[#got + 1] = result end)
+    pump()
+    uiStep({})
+    local m = uiStep()
+    case[4](m)
+    pump()
+    H.eq(got[1] and got[1].status, case[2], 'e2e ' .. case[1] .. ': status')
+    H.eq(got[1] and got[1].reason, case[3], 'e2e ' .. case[1] .. ': reason (not invalid_report)')
+    H.eq(got[1] and got[1].game, 'sequence', 'e2e ' .. case[1] .. ': aggregate')
+    H.eq(got[1] and #got[1].steps, 1, 'e2e ' .. case[1] .. ': played step kept')
+    H.eq(A.get('heist', attemptId), nil, 'e2e ' .. case[1] .. ': attempt closed')
+    H.tick(10)
+end
+local got = {}
+A.start('heist', 1, { steps = steps, cancel = { escape = 'fail' } }, function(result) got[#got + 1] = result end)
+pump(); uiStep({}); local m = uiStep()
+H.call('cancel', { protocol = 1, gen = gen, sid = m.sid }); pump()
+H.eq(got[1] and got[1].reason, 'abandoned', 'e2e abandoned accepted'); H.eq(got[1] and got[1].score, 90, 'e2e abandoned keeps step score')
+got = {}
+A.start('heist', 1, { steps = steps }, function(result) got[#got + 1] = result end)
+pump(); uiStep({}); uiStep({}); pump()
+H.eq(got[1] and got[1].status, 'success', 'e2e full sequence succeeds'); H.eq(got[1] and got[1].metrics.retries, 0, 'e2e retries metric')
+H.tick(10)
 
 H.done('client_attempts_spec')

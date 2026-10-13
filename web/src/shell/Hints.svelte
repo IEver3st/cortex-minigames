@@ -8,7 +8,7 @@
   let { hints, cancel = true }: { hints: Hint[]; cancel?: boolean } = $props();
 </script>
 
-<div class="hints" aria-label="Controls">
+<div class="hints" aria-label={t('ui.controls', 'Controls')}>
   {#each hints as hint (hint.label)}
     <span class="hint">
       {#each groupLabel(session.device, session.keymap, hint.actions) as text (text)}<Keycap label={text} />{/each}
