@@ -5,11 +5,11 @@
 [![Version 1.1.0](https://img.shields.io/badge/version-1.1.0-blue?style=flat-square)](https://github.com/IEver3st/cortex-minigames/releases/latest)
 [![Free to use](https://img.shields.io/badge/price-free-green?style=flat-square)](LICENSE)
 [![Discord](https://img.shields.io/badge/discord-GSD%20Modifications-5865F2?style=flat-square)](https://discord.gg/Atwt5nxaCV)
-[![Store](https://img.shields.io/badge/store-gsd--modifications.tebex.io-6e8ffa?style=flat-square)](https://gsd-modifications.tebex.io/)
+[![Store](https://img.shields.io/badge/store-gsdmods.com-6e8ffa?style=flat-square)](https://gsdmods.com/scripts?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames)
 
 > [!TIP]
 > **Made by GSD Modifications.** Get the paid Cortex scripts (PolCam, HUD, Chat, Rewind and more) at
-> **[gsd-modifications.tebex.io](https://gsd-modifications.tebex.io/)**, and get help in our
+> **[gsdmods.com](https://gsdmods.com/scripts?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames)**, and get help in our
 > [Discord](https://discord.gg/Atwt5nxaCV). Also free: [Cortex Library](https://github.com/IEver3st/cortex-lib).
 
 Free public release. Twelve minigames, composable QTEs and server-issued attempts for FiveM
@@ -305,6 +305,24 @@ input device, resolution and UI scale. Do not post credentials or private player
 Native CEF, controller input, focus and restarts, multiplayer isolation and performance still need
 server-owner acceptance. Follow the three checks in [docs/release.md](docs/release.md); offline
 tests and browser captures do not establish those results.
+
+## More from Cortex
+
+[![Cortex PolCam following a car from the police helicopter camera](https://raw.githubusercontent.com/IEver3st/gsd-tebex-media/main/forum/polcam/tracking-v2.webp)](https://gsdmods.com/scripts/cortex-polcam?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames)
+
+Cortex Minigames is free and stays free. The paid Cortex scripts run on the same Cortex Library and pay for the free ones.
+
+| Police | Interface | Driving and freeroam |
+| --- | --- | --- |
+| [PolCam](https://gsdmods.com/scripts/cortex-polcam?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): FLIR helicopter camera with target tracking | [HUD](https://gsdmods.com/scripts/cortex-hud?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): vitals, vehicle, aircraft, weapon and radar | [Handling](https://gsdmods.com/scripts/cortex-handling?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): tune handling from the driver's seat |
+| [Arges](https://gsdmods.com/scripts/cortex-arges?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): remote spotlight for patrol cars | [Chat](https://gsdmods.com/scripts/cortex-chat?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): chat replacement with roleplay actions | [Rewind](https://gsdmods.com/scripts/cortex-rewind?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): rewind a missed corner or a bad landing |
+| [Radio](https://gsdmods.com/scripts/cortex-radio?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): handheld radio for pma-voice | [Spawn](https://gsdmods.com/scripts/cortex-spawn?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): pick your spawn from a live view of the city | [Emote Studio](https://gsdmods.com/scripts/cortex-emote-studio?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): preview, fit and pair emotes |
+| [Flashlight](https://gsdmods.com/scripts/cortex-flashlight?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): weapon, vest and UV forensic torches | [Multicharacter](https://gsdmods.com/scripts/cortex-multicharacter?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): character selection and creation for Qbox | |
+| [Binoculars](https://gsdmods.com/scripts/cortex-binoculars?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): zoom, rangefinder, night and thermal vision | [Loading Screen](https://gsdmods.com/scripts/cortex-loading-screen?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): cinematic arrival screen | |
+
+**[Browse every Cortex script](https://gsdmods.com/scripts?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames)** · [LEO Kit](https://gsdmods.com/scripts/cortex-leo-kit?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): PolCam, Arges, Binoculars and Flashlight in one purchase · [All-Access](https://gsdmods.com/scripts/cortex-all-access?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames): every paid script for one monthly price
+
+Also free: [Admin](https://gsdmods.com/scripts/cortex-admin?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames) · [Drone](https://gsdmods.com/scripts/cortex-drone?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames) · [Drone Races](https://gsdmods.com/scripts/cortex-drone-races?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames) · [Gunsmith](https://gsdmods.com/scripts/cortex-gunsmith?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames) · [Megaphone](https://gsdmods.com/scripts/cortex-megaphone?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames) · [Thrusters](https://gsdmods.com/scripts/cortex-thrusters?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames) · [Library](https://gsdmods.com/scripts/cortex-library?utm_source=github&utm_medium=readme&utm_campaign=cortex-minigames)
 
 ## Licence
 
